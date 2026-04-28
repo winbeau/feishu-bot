@@ -27,6 +27,14 @@ class DifyFileUnsupportedError(DifyFileUploadError):
 
 
 class DifyFileUploadService:
+    _MIME_EXTENSIONS = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+    }
+
     def __init__(
         self,
         http_client: httpx.AsyncClient | None = None,
@@ -110,7 +118,7 @@ class DifyFileUploadService:
                     data={"user": user_id},
                     files={
                         "file": (
-                            attachment.file_name or path.name,
+                            self._upload_file_name(attachment, path),
                             handle,
                             attachment.mime_type or "application/octet-stream",
                         )
@@ -138,6 +146,7 @@ class DifyFileUploadService:
             "dify file uploaded",
             attachment,
             status_code=getattr(response, "status_code", None),
+            response_payload=payload,
         )
         return attachment
 
@@ -165,13 +174,45 @@ class DifyFileUploadService:
         attachment: Attachment,
         *,
         status_code: int | None = None,
+        response_payload: dict[str, Any] | None = None,
     ) -> None:
+        response_payload = response_payload or {}
         logger.info(
+            "%s status_code=%s file_name=%s mime_type=%s dify_file_id=%s "
+            "dify_file_name=%s dify_file_extension=%s "
+            "dify_file_mime_type=%s dify_file_size=%s",
             message,
+            status_code,
+            attachment.file_name,
+            attachment.mime_type,
+            response_payload.get("id"),
+            response_payload.get("name"),
+            response_payload.get("extension"),
+            response_payload.get("mime_type"),
+            response_payload.get("size"),
             extra={
                 "event": "dify_file_upload",
                 "file_name": attachment.file_name,
                 "mime_type": attachment.mime_type,
                 "status_code": status_code,
+                "dify_file_id": response_payload.get("id"),
+                "dify_file_name": response_payload.get("name"),
+                "dify_file_extension": response_payload.get("extension"),
+                "dify_file_mime_type": response_payload.get("mime_type"),
+                "dify_file_size": response_payload.get("size"),
             },
         )
+
+    def _upload_file_name(self, attachment: Attachment, path: Path) -> str:
+        file_name = attachment.file_name or path.name
+        if Path(file_name).suffix:
+            return file_name
+
+        extension = self._extension_from_mime_type(attachment.mime_type)
+        if extension:
+            return f"{file_name}{extension}"
+        return file_name
+
+    def _extension_from_mime_type(self, mime_type: str | None) -> str | None:
+        normalized = (mime_type or "").split(";", 1)[0].strip().lower()
+        return self._MIME_EXTENSIONS.get(normalized)
