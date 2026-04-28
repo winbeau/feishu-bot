@@ -146,3 +146,28 @@ Tests:
 Feature status: F001-F004 passes=true; F005-F010 passes=false
 
 Next agent should start with: F005
+
+=== Session 005: F005 Dify Backend Adapter ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- tests/unit/test_dify_backend.py: TDD coverage for Dify blocking payload/response parsing, streaming SSE aggregation, timeout retry, 4xx error handling, missing API key, health check success/failure, and streaming error events
+- app/backends/dify.py: DifyBackend implementation with runtime DIFY_API_KEY lookup, configurable base URL/response mode, /chat-messages blocking and streaming calls, timeout-only retries, BackendError wrapping, and /parameters health check
+- feature_list.json: F005 passes=true
+
+Scope notes:
+- Streaming mode consumes SSE internally and returns the aggregated answer string, keeping the LLMBackend.chat() contract unchanged
+- Session persistence and Dify conversation_id mapping remain deferred to F006; F005 passes the provided session_id through as conversation_id
+- No core-layer dependency on app.backends or app.platforms was introduced
+
+Tests:
+- RED confirmed: uv run pytest -k "test_dify" -v failed against the Dify stub with ImportError for missing BackendError
+- GREEN confirmed: uv run pytest -k "test_dify" -v passed, 8 tests
+- Full suite: uv run pytest tests/ -q passed, 38 tests
+- Architecture check: rg "app\\.platforms|app\\.backends" app/core produced no matches
+
+Feature status: F001-F005 passes=true; F006-F010 passes=false
+
+Next agent should start with: F006

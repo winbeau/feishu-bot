@@ -72,7 +72,7 @@
       "单元测试：Dify 超时触发重试（最多 2 次）",
       "单元测试：Dify 返回 4xx 时抛出 BackendError"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F006",
