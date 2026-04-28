@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, Response
 
+from app.core.dedup import DeduplicationStore
 from app.core.models import UnifiedMessage
 from app.platforms.feishu import FeishuAdapter
 
@@ -17,6 +18,14 @@ def get_gateway():
     return gateway
 
 
+def get_deduplication_store() -> DeduplicationStore:
+    store = getattr(app.state, "deduplication_store", None)
+    if store is None:
+        store = DeduplicationStore()
+        app.state.deduplication_store = store
+    return store
+
+
 @app.post("/feishu/webhook", response_model=None)
 async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
     adapter = get_feishu_adapter()
@@ -30,6 +39,13 @@ async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
 
     raw = await request.json()
     incoming = await adapter.parse_incoming(raw)
+    if incoming.message_id:
+        is_first_delivery = await get_deduplication_store().mark_seen(
+            incoming.message_id
+        )
+        if not is_first_delivery:
+            return {"ok": True}
+
     reply = await get_gateway().route(incoming)
     outgoing = UnifiedMessage(
         platform=incoming.platform,

@@ -100,7 +100,7 @@
       "单元测试：不同 message_id 均通过",
       "集成测试：同一 Webhook 请求发两次，仅处理一次"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F008",

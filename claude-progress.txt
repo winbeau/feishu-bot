@@ -196,3 +196,32 @@ Tests:
 Feature status: F001-F006 passes=true; F007-F010 passes=false
 
 Next agent should start with: F007
+
+=== Session 007: F007 Message Deduplication ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- tests/unit/test_deduplication_store.py: TDD coverage for first-seen messages, duplicate message IDs, distinct IDs, and Redis TTL/prefix parameters
+- tests/integration/test_feishu_webhook.py: webhook retry coverage proving the same Feishu payload is acknowledged twice but routed and replied to once
+- app/core/dedup.py: Redis-backed DeduplicationStore using SET with ex TTL and nx semantics, defaulting REDIS_URL to redis://localhost:6380/0
+- app/main.py: Feishu webhook deduplication after parse_incoming; duplicate message_id returns {"ok": True} without gateway routing or reply sending
+- feature_list.json: F007 passes=true
+
+Scope notes:
+- Messages without message_id continue through the existing webhook path without deduplication
+- app/core/dedup.py imports no app.platforms or app.backends modules
+- No session, Dify, WeChat, or QQ behavior was changed
+
+Tests:
+- RED confirmed: uv run pytest -k "test_deduplication" -v failed against the DeduplicationStore stub
+- RED confirmed: uv run pytest tests/integration/test_feishu_webhook.py -k "deduplicates" -v failed because duplicate webhook deliveries were routed twice
+- GREEN confirmed: uv run pytest -k "test_deduplication" -v passed
+- GREEN confirmed: uv run pytest tests/integration/test_feishu_webhook.py -k "deduplicates" -v passed
+- Full suite: uv run pytest tests/ -q passed, 47 tests
+- Architecture check: rg "app\\.platforms|app\\.backends" app/core produced no matches
+
+Feature status: F001-F007 passes=true; F008-F010 passes=false
+
+Next agent should start with: F008
