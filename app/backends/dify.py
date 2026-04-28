@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -8,6 +9,8 @@ import httpx
 from app.backends.dify_inputs import DifyInputBuilder
 from app.backends.base import LLMBackend
 from app.core.models import UnifiedMessage
+
+logger = logging.getLogger(__name__)
 
 
 class BackendError(Exception):
@@ -139,11 +142,23 @@ class DifyBackend(LLMBackend):
         }
 
     def _payload(self, message: UnifiedMessage, session_id: str) -> dict[str, Any]:
-        return self._input_builder.build_payload(
+        payload = self._input_builder.build_payload(
             message,
             session_id,
             self._response_mode,
         )
+        files = payload.get("files") or []
+        if files:
+            logger.info(
+                "dify payload includes files",
+                extra={
+                    "event": "dify_payload_files",
+                    "session_id": session_id,
+                    "file_count": len(files),
+                    "files": files,
+                },
+            )
+        return payload
 
     def _raise_for_status(self, response: Any) -> None:
         try:

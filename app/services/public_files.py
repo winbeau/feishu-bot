@@ -1,10 +1,13 @@
 import os
 import shutil
 import uuid
+import logging
 from pathlib import Path
 from urllib.parse import urlparse
 
 from app.core.models import Attachment
+
+logger = logging.getLogger(__name__)
 
 
 class PublicFilePublishError(Exception):
@@ -57,6 +60,15 @@ class PublicFileService:
         destination = self._public_dir / public_name
         shutil.copyfile(source, destination)
         attachment.url = f"{self._base_url}/public/files/{public_name}"
+        logger.info(
+            "public image published",
+            extra={
+                "event": "public_image_publish",
+                "public_url": attachment.url,
+                "public_path": str(destination),
+                "mime_type": attachment.mime_type,
+            },
+        )
         return attachment
 
     def _image_extension(
