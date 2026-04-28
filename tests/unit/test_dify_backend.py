@@ -394,7 +394,7 @@ async def test_dify_payload_includes_uploaded_image_file(
     ]
 
 
-async def test_dify_payload_prefers_public_url_over_uploaded_image_file(
+async def test_dify_payload_prefers_uploaded_image_file_over_public_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DIFY_API_KEY", "test-key")
@@ -429,8 +429,8 @@ async def test_dify_payload_prefers_public_url_over_uploaded_image_file(
     assert payload["files"] == [
         {
             "type": "image",
-            "transfer_method": "remote_url",
-            "url": "https://bot.example.test/public/files/image.png",
+            "transfer_method": "local_file",
+            "upload_file_id": "upload-id-1",
         }
     ]
 

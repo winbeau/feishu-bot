@@ -15,6 +15,7 @@ from app.core.gateway import Gateway
 from app.core.models import MessageType, UnifiedMessage
 from app.core.session import ConversationSummaryStore, SessionStore
 from app.platforms.feishu import FeishuAdapter
+from app.services.dify_files import DifyFileUploadError, DifyFileUploadService
 from app.services.feishu_files import FeishuFileDownloadError, FeishuFileService
 from app.services.file_parser import FileParserService
 from app.services.public_files import (
@@ -107,6 +108,14 @@ def get_file_parser_service() -> FileParserService:
     return service
 
 
+def get_dify_file_upload_service() -> DifyFileUploadService:
+    service = getattr(app.state, "dify_file_upload_service", None)
+    if service is None:
+        service = DifyFileUploadService()
+        app.state.dify_file_upload_service = service
+    return service
+
+
 def get_public_file_service(base_url: str | None = None) -> PublicFileService:
     service = getattr(app.state, "public_file_service", None)
     if service is not None:
@@ -179,10 +188,7 @@ async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
 
     if incoming.attachments:
         try:
-            await _process_feishu_attachments(
-                incoming,
-                public_file_base_url=_public_file_base_url_from_request(request),
-            )
+            await _process_feishu_attachments(incoming)
         except FeishuFileDownloadError:
             logger.exception(
                 "feishu attachment download failed",
@@ -213,6 +219,21 @@ async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
                 "图片处理失败，请稍后重试",
             )
             return {"ok": True}
+        except DifyFileUploadError:
+            logger.exception(
+                "dify image upload failed",
+                extra={
+                    "event": "dify_file_upload",
+                    "message_id": incoming.message_id,
+                },
+            )
+            await _send_feishu_text_reply(
+                adapter,
+                incoming,
+                feishu_receive_id,
+                "图片处理失败，请稍后重试",
+            )
+            return {"ok": True}
 
     reply = await get_gateway().route(incoming)
     await _send_feishu_text_reply(adapter, incoming, feishu_receive_id, reply)
@@ -221,7 +242,6 @@ async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
 
 async def _process_feishu_attachments(
     incoming: UnifiedMessage,
-    public_file_base_url: str | None = None,
 ) -> None:
     file_type = "image" if incoming.message_type is MessageType.IMAGE else "file"
     if not incoming.message_id:
@@ -229,8 +249,6 @@ async def _process_feishu_attachments(
 
     file_service = get_feishu_file_service()
     parser_service = get_file_parser_service()
-    public_file_service = get_public_file_service(public_file_base_url)
-    public_file_url_validator = get_public_file_url_validator()
     for attachment in incoming.attachments:
         await file_service.download_attachment(
             incoming.message_id,
@@ -238,10 +256,11 @@ async def _process_feishu_attachments(
             file_type,
         )
         if incoming.message_type is MessageType.IMAGE:
-            public_file_service.publish_image(attachment)
-            if not attachment.url:
-                raise PublicFilePublishError("published image is missing public url")
-            await public_file_url_validator.validate_image_url(attachment.url)
+            await get_dify_file_upload_service().upload_attachment(
+                attachment,
+                user_id=incoming.user_id,
+                dify_file_type="image",
+            )
         elif incoming.message_type is MessageType.FILE:
             parser_service.parse_attachment(attachment)
 
