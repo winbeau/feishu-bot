@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 from starlette.requests import Request
 
@@ -36,14 +37,32 @@ class FakeResponse:
 
 
 class FakeHTTPClient:
-    def __init__(self) -> None:
+    def __init__(self, send_responses: list[dict | Exception] | None = None) -> None:
         self.calls: list[tuple[str, dict]] = []
+        self._send_responses = send_responses or [
+            {"code": 0, "data": {"message_id": "sent-message"}}
+        ]
 
     async def post(self, url: str, **kwargs) -> FakeResponse:
         self.calls.append((url, kwargs))
         if url.endswith("/open-apis/auth/v3/tenant_access_token/internal"):
             return FakeResponse({"code": 0, "tenant_access_token": "tenant-token"})
-        return FakeResponse({"code": 0, "data": {"message_id": "sent-message"}})
+        send_response = self._send_responses.pop(0)
+        if isinstance(send_response, Exception):
+            raise send_response
+        return FakeResponse(send_response)
+
+
+def assert_post_payload(payload: dict, *, receive_id: str, text: str) -> None:
+    assert payload["receive_id"] == receive_id
+    assert payload["msg_type"] == "post"
+    content = json.loads(payload["content"])
+    assert content == {
+        "zh_cn": {
+            "title": "",
+            "content": [[{"tag": "md", "text": text}]],
+        }
+    }
 
 
 @pytest.fixture
@@ -223,7 +242,7 @@ async def test_feishu_parse_incoming_post_event_without_image_as_text(
     assert message.attachments == []
 
 
-async def test_feishu_send_message_gets_token_and_sends_text_payload(
+async def test_feishu_send_message_gets_token_and_sends_post_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("FEISHU_APP_ID", "app-id")
@@ -235,7 +254,7 @@ async def test_feishu_send_message_gets_token_and_sends_text_payload(
         message_type=MessageType.TEXT,
         session_id="oc_chat_1",
         user_id="ou_user_1",
-        content="reply text",
+        content="# Title\n\n- **item**\n\n```python\nprint('ok')\n```",
     )
 
     sent = await adapter.send_message(message)
@@ -253,8 +272,150 @@ async def test_feishu_send_message_gets_token_and_sends_text_payload(
         "?receive_id_type=chat_id"
     )
     assert send_kwargs["headers"]["Authorization"] == "Bearer tenant-token"
-    assert send_kwargs["json"] == {
+    assert_post_payload(
+        send_kwargs["json"],
+        receive_id="oc_chat_1",
+        text="# Title\n\n- **item**\n\n```python\nprint('ok')\n```",
+    )
+
+
+async def test_feishu_send_message_sends_plain_text_as_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FEISHU_APP_ID", "app-id")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "app-secret")
+    http_client = FakeHTTPClient()
+    adapter = FeishuAdapter(http_client=http_client)
+    message = UnifiedMessage(
+        platform=PlatformType.FEISHU,
+        message_type=MessageType.TEXT,
+        session_id="oc_chat_1",
+        user_id="ou_user_1",
+        content="plain reply",
+    )
+
+    sent = await adapter.send_message(message)
+
+    assert sent is True
+    assert len(http_client.calls) == 2
+    assert_post_payload(
+        http_client.calls[1][1]["json"],
+        receive_id="oc_chat_1",
+        text="plain reply",
+    )
+
+
+async def test_feishu_send_message_falls_back_to_text_when_post_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FEISHU_APP_ID", "app-id")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "app-secret")
+    http_client = FakeHTTPClient(send_responses=[{"code": 999}, {"code": 0}])
+    adapter = FeishuAdapter(http_client=http_client)
+    message = UnifiedMessage(
+        platform=PlatformType.FEISHU,
+        message_type=MessageType.TEXT,
+        session_id="oc_chat_1",
+        user_id="ou_user_1",
+        content="**fallback**",
+    )
+
+    sent = await adapter.send_message(message)
+
+    assert sent is True
+    assert len(http_client.calls) == 3
+    assert_post_payload(
+        http_client.calls[1][1]["json"],
+        receive_id="oc_chat_1",
+        text="**fallback**",
+    )
+    assert http_client.calls[2][1]["json"] == {
         "receive_id": "oc_chat_1",
         "msg_type": "text",
-        "content": json.dumps({"text": "reply text"}, ensure_ascii=False),
+        "content": json.dumps({"text": "**fallback**"}, ensure_ascii=False),
+    }
+
+
+async def test_feishu_send_message_falls_back_to_text_when_post_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FEISHU_APP_ID", "app-id")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "app-secret")
+    request = httpx.Request("POST", "https://open.feishu.cn/open-apis/im/v1/messages")
+    response = httpx.Response(400, request=request)
+    http_client = FakeHTTPClient(
+        send_responses=[
+            httpx.HTTPStatusError("bad request", request=request, response=response),
+            {"code": 0},
+        ]
+    )
+    adapter = FeishuAdapter(http_client=http_client)
+    message = UnifiedMessage(
+        platform=PlatformType.FEISHU,
+        message_type=MessageType.TEXT,
+        session_id="oc_chat_1",
+        user_id="ou_user_1",
+        content="**fallback**",
+    )
+
+    sent = await adapter.send_message(message)
+
+    assert sent is True
+    assert len(http_client.calls) == 3
+    assert http_client.calls[2][1]["json"] == {
+        "receive_id": "oc_chat_1",
+        "msg_type": "text",
+        "content": json.dumps({"text": "**fallback**"}, ensure_ascii=False),
+    }
+
+
+async def test_feishu_send_message_uses_text_when_post_payload_exceeds_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FEISHU_APP_ID", "app-id")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "app-secret")
+    http_client = FakeHTTPClient()
+    adapter = FeishuAdapter(http_client=http_client)
+    long_text = "a" * (30 * 1024)
+    message = UnifiedMessage(
+        platform=PlatformType.FEISHU,
+        message_type=MessageType.TEXT,
+        session_id="oc_chat_1",
+        user_id="ou_user_1",
+        content=long_text,
+    )
+
+    sent = await adapter.send_message(message)
+
+    assert sent is True
+    assert len(http_client.calls) == 2
+    assert http_client.calls[1][1]["json"] == {
+        "receive_id": "oc_chat_1",
+        "msg_type": "text",
+        "content": json.dumps({"text": long_text}, ensure_ascii=False),
+    }
+
+
+async def test_feishu_send_message_uses_text_for_blank_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FEISHU_APP_ID", "app-id")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "app-secret")
+    http_client = FakeHTTPClient()
+    adapter = FeishuAdapter(http_client=http_client)
+    message = UnifiedMessage(
+        platform=PlatformType.FEISHU,
+        message_type=MessageType.TEXT,
+        session_id="oc_chat_1",
+        user_id="ou_user_1",
+        content="  \n",
+    )
+
+    sent = await adapter.send_message(message)
+
+    assert sent is True
+    assert http_client.calls[1][1]["json"] == {
+        "receive_id": "oc_chat_1",
+        "msg_type": "text",
+        "content": json.dumps({"text": "  \n"}, ensure_ascii=False),
     }

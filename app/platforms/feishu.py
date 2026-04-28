@@ -11,6 +11,9 @@ from app.core.models import Attachment, MessageType, PlatformType, UnifiedMessag
 from app.platforms.base import PlatformAdapter
 
 
+FEISHU_POST_CONTENT_LIMIT_BYTES = 30 * 1024
+
+
 class FeishuAdapter(PlatformAdapter):
     def __init__(
         self,
@@ -127,20 +130,73 @@ class FeishuAdapter(PlatformAdapter):
         if not tenant_token:
             return False
 
-        send_response = await client.post(
-            f"{self._base_url}/open-apis/im/v1/messages?receive_id_type=chat_id",
-            headers={
-                "Authorization": f"Bearer {tenant_token}",
-                "Content-Type": "application/json; charset=utf-8",
-            },
-            json={
-                "receive_id": msg.session_id,
-                "msg_type": "text",
-                "content": json.dumps({"text": msg.content}, ensure_ascii=False),
-            },
+        payload = self._build_text_message_payload(msg)
+        if msg.content.strip():
+            post_payload = self._build_post_message_payload(msg)
+            if self._post_payload_within_limit(post_payload):
+                payload = post_payload
+
+        if payload["msg_type"] == "text":
+            return await self._send_payload(client, tenant_token, payload)
+
+        if await self._send_payload(client, tenant_token, payload, raise_status=False):
+            return True
+        return await self._send_payload(
+            client,
+            tenant_token,
+            self._build_text_message_payload(msg),
         )
-        send_response.raise_for_status()
+
+    async def _send_payload(
+        self,
+        client: Any,
+        tenant_token: str,
+        payload: dict[str, str],
+        *,
+        raise_status: bool = True,
+    ) -> bool:
+        try:
+            send_response = await client.post(
+                f"{self._base_url}/open-apis/im/v1/messages?receive_id_type=chat_id",
+                headers={
+                    "Authorization": f"Bearer {tenant_token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json=payload,
+            )
+            send_response.raise_for_status()
+        except httpx.HTTPError:
+            if raise_status:
+                raise
+            return False
+
         return send_response.json().get("code", 0) == 0
+
+    def _build_post_message_payload(self, msg: UnifiedMessage) -> dict[str, str]:
+        content = {
+            "zh_cn": {
+                "title": "",
+                "content": [[{"tag": "md", "text": msg.content}]],
+            }
+        }
+        return {
+            "receive_id": msg.session_id,
+            "msg_type": "post",
+            "content": json.dumps(content, ensure_ascii=False),
+        }
+
+    def _build_text_message_payload(self, msg: UnifiedMessage) -> dict[str, str]:
+        return {
+            "receive_id": msg.session_id,
+            "msg_type": "text",
+            "content": json.dumps({"text": msg.content}, ensure_ascii=False),
+        }
+
+    def _post_payload_within_limit(self, payload: dict[str, str]) -> bool:
+        return (
+            len(payload["content"].encode("utf-8"))
+            <= FEISHU_POST_CONTENT_LIMIT_BYTES
+        )
 
     async def _request_json(self, request: Request) -> dict[str, Any]:
         payload = await request.json()
@@ -148,7 +204,10 @@ class FeishuAdapter(PlatformAdapter):
             return {}
         return payload
 
-    def _parse_post_content(self, content: dict[str, Any]) -> tuple[str, list[Attachment]]:
+    def _parse_post_content(
+        self,
+        content: dict[str, Any],
+    ) -> tuple[str, list[Attachment]]:
         text_parts: list[str] = []
         attachments: list[Attachment] = []
         title = content.get("title")

@@ -13,12 +13,13 @@ from app.services.public_files import PublicFilePublishError
 
 
 class FakeGateway:
-    def __init__(self) -> None:
+    def __init__(self, reply: str = "gateway reply") -> None:
         self.messages: list[UnifiedMessage] = []
+        self.reply = reply
 
     async def route(self, message: UnifiedMessage) -> str:
         self.messages.append(message)
-        return "gateway reply"
+        return self.reply
 
 
 class FakeDeduplicationStore:
@@ -134,6 +135,26 @@ class FakeHTTPClient:
         return FakeResponse({"code": 0})
 
 
+def sent_payload_text(payload: dict) -> str:
+    content = json.loads(payload["content"])
+    if payload["msg_type"] == "text":
+        return content["text"]
+    assert payload["msg_type"] == "post"
+    return content["zh_cn"]["content"][0][0]["text"]
+
+
+def assert_post_payload(payload: dict, *, receive_id: str, text: str) -> None:
+    assert payload["receive_id"] == receive_id
+    assert payload["msg_type"] == "post"
+    content = json.loads(payload["content"])
+    assert content == {
+        "zh_cn": {
+            "title": "",
+            "content": [[{"tag": "md", "text": text}]],
+        }
+    }
+
+
 def test_get_gateway_builds_default_production_gateway() -> None:
     existing = getattr(app.state, "gateway", None)
     if existing is not None:
@@ -218,7 +239,7 @@ def test_feishu_webhook_routes_message_and_sends_reply(
     monkeypatch.setenv("FEISHU_APP_ID", "app-id")
     monkeypatch.setenv("FEISHU_APP_SECRET", "app-secret")
     http_client = FakeHTTPClient()
-    gateway = FakeGateway()
+    gateway = FakeGateway(reply="## gateway reply\n\n- item")
     deduplication_store = FakeDeduplicationStore()
     session_store = FakeSessionStore()
     app.state.feishu_adapter = FeishuAdapter(http_client=http_client)
@@ -240,11 +261,11 @@ def test_feishu_webhook_routes_message_and_sends_reply(
     assert gateway.messages[0].content == "incoming text"
     assert gateway.messages[0].session_id == "dify-session-1"
     assert len(http_client.calls) == 2
-    assert http_client.calls[1][1]["json"] == {
-        "receive_id": "oc_chat_1",
-        "msg_type": "text",
-        "content": json.dumps({"text": "gateway reply"}, ensure_ascii=False),
-    }
+    assert_post_payload(
+        http_client.calls[1][1]["json"],
+        receive_id="oc_chat_1",
+        text="## gateway reply\n\n- item",
+    )
     assert deduplication_store.message_ids == ["om_message_1"]
     assert session_store.calls == [("feishu", "ou_user_1")]
 
@@ -436,14 +457,9 @@ def test_feishu_webhook_replies_fixed_message_when_download_fails(
 
     assert response.status_code == 200
     assert gateway.messages == []
-    assert http_client.calls[1][1]["json"] == {
-        "receive_id": "oc_chat_1",
-        "msg_type": "text",
-        "content": json.dumps(
-            {"text": "文件下载失败，请稍后重试"},
-            ensure_ascii=False,
-        ),
-    }
+    assert sent_payload_text(http_client.calls[1][1]["json"]) == (
+        "文件下载失败，请稍后重试"
+    )
 
 
 def test_feishu_webhook_uploads_image_to_dify_before_gateway(
@@ -541,14 +557,9 @@ def test_feishu_webhook_replies_fixed_message_when_dify_image_upload_fails(
     assert response.status_code == 200
     assert gateway.messages == []
     assert dify_file_upload_service.calls == [("image-key", "ou_user_1", "image")]
-    assert http_client.calls[1][1]["json"] == {
-        "receive_id": "oc_chat_1",
-        "msg_type": "text",
-        "content": json.dumps(
-            {"text": "图片处理失败，请稍后重试"},
-            ensure_ascii=False,
-        ),
-    }
+    assert sent_payload_text(http_client.calls[1][1]["json"]) == (
+        "图片处理失败，请稍后重试"
+    )
 
 
 def test_feishu_webhook_uploads_post_image_to_dify_before_gateway(
@@ -658,8 +669,8 @@ def test_feishu_webhook_does_not_publish_image_on_main_path(
     assert len(gateway.messages) == 1
     assert public_file_service.calls == []
     assert dify_file_upload_service.calls == [("image-key", "ou_user_1", "image")]
-    assert http_client.calls[1][1]["json"] == {
-        "receive_id": "oc_chat_1",
-        "msg_type": "text",
-        "content": json.dumps({"text": "gateway reply"}, ensure_ascii=False),
-    }
+    assert_post_payload(
+        http_client.calls[1][1]["json"],
+        receive_id="oc_chat_1",
+        text="gateway reply",
+    )
