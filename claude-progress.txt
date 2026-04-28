@@ -55,3 +55,22 @@ What was set up:
 Feature status: F001-F010 passes=false
 
 Next agent should start with: F001
+
+=== Session 001: F001 Unified Message Model ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- app/core/models.py: Pydantic UnifiedMessage model with MessageType and PlatformType string enums
+- tests/unit/test_models.py: F001 TDD coverage for serialization/deserialization, declared enum values, and required core fields
+- feature_list.json: F001 passes=true
+
+Tests:
+- RED confirmed: uv run pytest tests/unit/test_models.py -k "test_unified_message" -v failed against stubs
+- GREEN confirmed: uv run pytest tests/unit/test_models.py -k "test_unified_message" -v passed
+- Full suite: uv run pytest tests/ -q passed
+
+Feature status: F001 passes=true; F002-F010 passes=false
+
+Next agent should start with: F002
