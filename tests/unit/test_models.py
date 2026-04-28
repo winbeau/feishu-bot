@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.core.models import MessageType, PlatformType, UnifiedMessage
+from app.core.models import Attachment, MessageType, PlatformType, UnifiedMessage
 
 
 def test_scaffold_imports_cleanly() -> None:
@@ -40,6 +40,8 @@ def test_unified_message_serializes_and_deserializes() -> None:
         "user_id": "user-1",
         "content": "hello",
         "message_id": "message-1",
+        "attachments": [],
+        "conversation_summary": "",
         "raw": {"event": {"message": {"message_id": "message-1"}}},
     }
 
@@ -84,3 +86,18 @@ def test_unified_message_requires_core_fields(missing_field: str) -> None:
 
     with pytest.raises(ValidationError):
         UnifiedMessage.model_validate(data)
+
+
+def test_attachment_defaults_are_empty_value_compatible() -> None:
+    attachment = Attachment()
+
+    assert attachment.model_dump() == {
+        "file_key": None,
+        "file_name": None,
+        "mime_type": None,
+        "size": None,
+        "url": None,
+        "local_path": None,
+        "parsed_text": None,
+        "file_tags": [],
+    }

@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app.backends.dify import BackendError, DifyBackend
-from app.core.models import MessageType, PlatformType, UnifiedMessage
+from app.core.models import Attachment, MessageType, PlatformType, UnifiedMessage
 
 
 class FakeResponse:
@@ -103,7 +103,11 @@ async def test_dify_blocking_chat_posts_expected_payload_and_returns_answer(
     http_client = FakeHTTPClient(
         post_results=[FakeResponse({"answer": "hello from dify"})]
     )
-    backend = DifyBackend(http_client=http_client, base_url="https://dify.example.test")
+    backend = DifyBackend(
+        http_client=http_client,
+        base_url="https://dify.example.test",
+        response_mode="blocking",
+    )
 
     answer = await backend.chat(dify_message, session_id="conversation-1")
 
@@ -116,10 +120,19 @@ async def test_dify_blocking_chat_posts_expected_payload_and_returns_answer(
         "Content-Type": "application/json",
     }
     assert kwargs["json"] == {
-        "inputs": {},
+        "inputs": {
+            "feishu_user_id": "user-1",
+            "session_id": "conversation-1",
+            "message_type": "text",
+            "file_list": "[]",
+            "image_urls": "[]",
+            "parsed_text": "",
+            "file_tags": "[]",
+            "conversation_summary": "",
+        },
         "query": "hello dify",
         "response_mode": "blocking",
-        "conversation_id": "conversation-1",
+        "conversation_id": "",
         "user": "user-1",
     }
 
@@ -164,7 +177,11 @@ async def test_dify_timeout_retries_twice_then_returns_answer(
             FakeResponse({"answer": "after retry"}),
         ]
     )
-    backend = DifyBackend(http_client=http_client, base_url="https://dify.example.test")
+    backend = DifyBackend(
+        http_client=http_client,
+        base_url="https://dify.example.test",
+        response_mode="blocking",
+    )
 
     answer = await backend.chat(dify_message, session_id="conversation-1")
 
@@ -178,7 +195,11 @@ async def test_dify_4xx_error_raises_backend_error_without_retry(
 ) -> None:
     monkeypatch.setenv("DIFY_API_KEY", "test-key")
     http_client = FakeHTTPClient(post_results=[FakeResponse(status_code=400)])
-    backend = DifyBackend(http_client=http_client, base_url="https://dify.example.test")
+    backend = DifyBackend(
+        http_client=http_client,
+        base_url="https://dify.example.test",
+        response_mode="blocking",
+    )
 
     with pytest.raises(BackendError):
         await backend.chat(dify_message, session_id="conversation-1")
@@ -261,3 +282,68 @@ async def test_dify_streaming_error_event_raises_backend_error(
 
     with pytest.raises(BackendError):
         await backend.chat(dify_message, session_id="conversation-1")
+
+
+async def test_dify_defaults_to_streaming_response_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    dify_message: UnifiedMessage,
+) -> None:
+    monkeypatch.setenv("DIFY_API_KEY", "test-key")
+    http_client = FakeHTTPClient(
+        stream_response=FakeResponse(
+            lines=['data: {"event": "message", "answer": "default stream"}']
+        )
+    )
+    backend = DifyBackend(http_client=http_client, base_url="https://dify.example.test")
+
+    answer = await backend.chat(dify_message, session_id="conversation-1")
+
+    assert answer == "default stream"
+    assert http_client.stream_calls[0][2]["json"]["response_mode"] == "streaming"
+
+
+async def test_dify_payload_includes_attachment_inputs_and_remote_image_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DIFY_API_KEY", "test-key")
+    http_client = FakeHTTPClient(
+        post_results=[FakeResponse({"answer": "attachment answer"})]
+    )
+    backend = DifyBackend(
+        http_client=http_client,
+        base_url="https://dify.example.test",
+        response_mode="blocking",
+    )
+    message = UnifiedMessage(
+        platform=PlatformType.FEISHU,
+        message_type=MessageType.IMAGE,
+        session_id="session-1",
+        user_id="user-1",
+        content="",
+        attachments=[
+            Attachment(
+                file_key="img-key",
+                url="https://cdn.example.test/image.png",
+                parsed_text="ignored for image",
+                file_tags=["downloaded"],
+            ),
+            Attachment(file_key="local-only", local_path="/tmp/local.png"),
+        ],
+        conversation_summary="previous turn",
+    )
+
+    await backend.chat(message, session_id="session-1")
+
+    payload = http_client.post_calls[0][1]["json"]
+    assert payload["inputs"]["session_id"] == "session-1"
+    assert payload["inputs"]["image_urls"] == '["https://cdn.example.test/image.png"]'
+    assert payload["inputs"]["parsed_text"] == "ignored for image"
+    assert payload["inputs"]["file_tags"] == '["downloaded"]'
+    assert payload["inputs"]["conversation_summary"] == "previous turn"
+    assert payload["files"] == [
+        {
+            "type": "image",
+            "transfer_method": "remote_url",
+            "url": "https://cdn.example.test/image.png",
+        }
+    ]

@@ -128,6 +128,45 @@ async def test_feishu_parse_incoming_text_event(feishu_event: dict) -> None:
     )
 
 
+async def test_feishu_parse_incoming_image_event(feishu_event: dict) -> None:
+    feishu_event["event"]["message"]["message_type"] = "image"
+    feishu_event["event"]["message"]["content"] = json.dumps(
+        {"image_key": "img_v3_key"}
+    )
+    adapter = FeishuAdapter()
+
+    message = await adapter.parse_incoming(feishu_event)
+
+    assert message.message_type is MessageType.IMAGE
+    assert message.message_id == "om_message_1"
+    assert message.session_id == "oc_chat_1"
+    assert message.user_id == "ou_user_1"
+    assert message.content == ""
+    assert len(message.attachments) == 1
+    assert message.attachments[0].file_key == "img_v3_key"
+
+
+async def test_feishu_parse_incoming_file_event(feishu_event: dict) -> None:
+    feishu_event["event"]["message"]["message_type"] = "file"
+    feishu_event["event"]["message"]["content"] = json.dumps(
+        {
+            "file_key": "file_v3_key",
+            "file_name": "report.csv",
+            "mime_type": "text/csv",
+            "size": 123,
+        }
+    )
+    adapter = FeishuAdapter()
+
+    message = await adapter.parse_incoming(feishu_event)
+
+    assert message.message_type is MessageType.FILE
+    assert message.attachments[0].file_key == "file_v3_key"
+    assert message.attachments[0].file_name == "report.csv"
+    assert message.attachments[0].mime_type == "text/csv"
+    assert message.attachments[0].size == 123
+
+
 async def test_feishu_send_message_gets_token_and_sends_text_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

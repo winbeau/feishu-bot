@@ -7,7 +7,7 @@ import httpx
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 
-from app.core.models import MessageType, PlatformType, UnifiedMessage
+from app.core.models import Attachment, MessageType, PlatformType, UnifiedMessage
 from app.platforms.base import PlatformAdapter
 
 
@@ -26,20 +26,42 @@ class FeishuAdapter(PlatformAdapter):
         message = event.get("message", {})
         if event_type != "im.message.receive_v1":
             raise ValueError(f"unsupported feishu event type: {event_type}")
-        if message.get("message_type") != "text":
+        message_type = message.get("message_type")
+        if message_type not in {"text", "image", "file"}:
             raise ValueError(
                 f"unsupported feishu message type: {message.get('message_type')}"
             )
 
         content = json.loads(message.get("content") or "{}")
         sender_id = event.get("sender", {}).get("sender_id", {})
+        attachments: list[Attachment] = []
+        text = ""
+        if message_type == "text":
+            parsed_message_type = MessageType.TEXT
+            text = content.get("text", "")
+        elif message_type == "image":
+            parsed_message_type = MessageType.IMAGE
+            image_key = content.get("image_key")
+            attachments.append(Attachment(file_key=image_key))
+        else:
+            parsed_message_type = MessageType.FILE
+            attachments.append(
+                Attachment(
+                    file_key=content.get("file_key"),
+                    file_name=content.get("file_name"),
+                    mime_type=content.get("mime_type"),
+                    size=content.get("size"),
+                )
+            )
+
         return UnifiedMessage(
             platform=PlatformType.FEISHU,
-            message_type=MessageType.TEXT,
+            message_type=parsed_message_type,
             session_id=message["chat_id"],
             user_id=sender_id["open_id"],
-            content=content.get("text", ""),
+            content=text,
             message_id=message.get("message_id"),
+            attachments=attachments,
             raw=raw,
         )
 

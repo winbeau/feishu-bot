@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from app.backends.dify_inputs import DifyInputBuilder
 from app.backends.base import LLMBackend
 from app.core.models import UnifiedMessage
 
@@ -20,13 +21,15 @@ class DifyBackend(LLMBackend):
         base_url: str | None = None,
         response_mode: str | None = None,
         max_retries: int = 2,
+        input_builder: DifyInputBuilder | None = None,
     ) -> None:
         self._http_client = http_client
         self._base_url = (
             base_url or os.getenv("DIFY_BASE_URL") or "https://api.dify.ai/v1"
         ).rstrip("/")
-        self._response_mode = response_mode or os.getenv("DIFY_RESPONSE_MODE") or "blocking"
+        self._response_mode = response_mode or os.getenv("DIFY_RESPONSE_MODE") or "streaming"
         self._max_retries = max_retries
+        self._input_builder = input_builder or DifyInputBuilder()
 
     async def chat(self, message: UnifiedMessage, session_id: str) -> str:
         if self._response_mode not in {"blocking", "streaming"}:
@@ -136,13 +139,11 @@ class DifyBackend(LLMBackend):
         }
 
     def _payload(self, message: UnifiedMessage, session_id: str) -> dict[str, Any]:
-        return {
-            "inputs": {},
-            "query": message.content,
-            "response_mode": self._response_mode,
-            "conversation_id": session_id,
-            "user": message.user_id,
-        }
+        return self._input_builder.build_payload(
+            message,
+            session_id,
+            self._response_mode,
+        )
 
     def _raise_for_status(self, response: Any) -> None:
         try:

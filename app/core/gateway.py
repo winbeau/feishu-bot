@@ -12,11 +12,25 @@ class ChatBackend(Protocol):
 
 
 class Gateway:
-    def __init__(self, backend: ChatBackend) -> None:
+    def __init__(self, backend: ChatBackend, summary_store=None) -> None:
         self._backend = backend
+        self._summary_store = summary_store
 
     async def route(self, message: UnifiedMessage) -> str:
         try:
-            return await self._backend.chat(message, message.session_id)
+            if self._summary_store is not None:
+                message.conversation_summary = await self._summary_store.get_summary(
+                    message.platform,
+                    message.user_id,
+                )
+            reply = await self._backend.chat(message, message.session_id)
+            if self._summary_store is not None:
+                await self._summary_store.update_summary(
+                    message.platform,
+                    message.user_id,
+                    message.content,
+                    reply,
+                )
+            return reply
         except Exception:
             return FALLBACK_REPLY

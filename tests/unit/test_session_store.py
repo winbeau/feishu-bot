@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
 from app.core.models import PlatformType
-from app.core.session import SessionStore
+from app.core.session import ConversationSummaryStore, SessionStore
 
 
 class FakeRedis:
@@ -107,3 +107,34 @@ async def test_session_store_get_and_set_wrap_redis_values() -> None:
 
     assert redis.values["session:feishu:user-2"] == "conversation-2"
     assert redis.set_calls == [("session:feishu:user-2", "conversation-2", 120)]
+
+
+async def test_conversation_summary_store_gets_and_updates_summary() -> None:
+    redis = FakeRedis()
+    store = ConversationSummaryStore(
+        redis_client=redis,
+        ttl_seconds=60,
+        max_chars=40,
+    )
+
+    assert await store.get_summary(PlatformType.FEISHU, "user-1") == ""
+
+    summary = await store.update_summary(
+        PlatformType.FEISHU,
+        "user-1",
+        "hello",
+        "hi there",
+    )
+
+    assert summary == "User: hello\nAssistant: hi there"
+    assert redis.values["summary:feishu:user-1"] == summary
+    assert redis.set_calls[-1] == ("summary:feishu:user-1", summary, 60)
+
+
+async def test_conversation_summary_store_truncates_to_max_chars() -> None:
+    redis = FakeRedis()
+    store = ConversationSummaryStore(redis_client=redis, max_chars=10)
+
+    summary = await store.update_summary("feishu", "user-1", "abcdefghij", "klmnop")
+
+    assert summary == "nt: klmnop"

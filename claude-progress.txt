@@ -218,6 +218,7 @@ Tests:
 - RED confirmed: uv run pytest -k "test_deduplication" -v failed against the DeduplicationStore stub
 - RED confirmed: uv run pytest tests/integration/test_feishu_webhook.py -k "deduplicates" -v failed because duplicate webhook deliveries were routed twice
 - GREEN confirmed: uv run pytest -k "test_deduplication" -v passed
+
 - GREEN confirmed: uv run pytest tests/integration/test_feishu_webhook.py -k "deduplicates" -v passed
 - Full suite: uv run pytest tests/ -q passed, 47 tests
 - Architecture check: rg "app\\.platforms|app\\.backends" app/core produced no matches
@@ -249,3 +250,43 @@ Tests:
 - Architecture check: rg "app\\.platforms|app\\.backends" app/core produced no matches
 
 Feature status: F001-F007 and F010 pass=true; F008-F009 passes=false
+
+=== Session 011: Feishu-Dify Attachment Pipeline ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- roadmap.md: documented the Feishu-Dify attachment/session/input pipeline scope
+- app/core/models.py: added Attachment and default UnifiedMessage attachment/summary fields
+- app/platforms/feishu.py: parses text, image, and file event payloads
+- app/services/feishu_files.py: downloads Feishu message resources with typed errors and structured logs
+- app/services/file_parser.py: parses text, markdown, csv, pptx, and pdf files into parsed_text/file_tags
+- app/backends/dify_inputs.py: builds Dify inputs and safe remote image files
+- app/backends/dify.py: uses DifyInputBuilder, defaults response_mode to streaming, and leaves conversation_id blank
+- app/core/session.py: added ConversationSummaryStore
+- app/core/gateway.py: reads/writes conversation summary around successful backend calls
+- app/main.py: wires SessionStore into the webhook, processes attachments before Gateway, and preserves chat_id for Feishu replies
+- pyproject.toml / uv.lock: added python-pptx and pypdf dependencies
+- tests: expanded coverage for Feishu parsing/webhook, downloads, parsers, Dify inputs, summaries, and session behavior
+
+Tests:
+- Full suite: uv run pytest tests/ -q passed
+
+Architecture notes:
+- app/core still has no app.platforms or app.backends imports.
+- Local file paths are not passed to Dify as remote_url files.
+
+=== Session 012: GitHub Deployment README ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- README.md: added full project overview, local development, Dify simulation, Feishu setup, server deployment with systemd/Nginx, GitHub publishing checklist, and troubleshooting
+- .env.example: replaced real Dify API key/server with safe placeholders for GitHub publishing
+- Local .env remains ignored and can hold real development secrets
+
+Tests:
+- Full suite: uv run pytest tests/ -q passed, 76 tests
+- Secret scan: rg "app-mZUXsOLwl8VsHAtnyESamhPz" . produced no matches

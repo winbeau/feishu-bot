@@ -19,6 +19,21 @@ class RaisingBackend:
         raise RuntimeError("backend unavailable")
 
 
+class RecordingSummaryStore:
+    def __init__(self, summary: str = "previous summary") -> None:
+        self.summary = summary
+        self.get_calls: list[tuple[PlatformType, str]] = []
+        self.update_calls: list[tuple[PlatformType, str, str, str]] = []
+
+    async def get_summary(self, platform, user_id: str) -> str:
+        self.get_calls.append((platform, user_id))
+        return self.summary
+
+    async def update_summary(self, platform, user_id: str, user_message: str, reply: str):
+        self.update_calls.append((platform, user_id, user_message, reply))
+        return "updated summary"
+
+
 @pytest.fixture
 def text_message() -> UnifiedMessage:
     return UnifiedMessage(
@@ -51,3 +66,32 @@ async def test_gateway_returns_fallback_reply_when_backend_raises(
     reply = await gateway.route(text_message)
 
     assert reply == "抱歉，服务暂时不可用，请稍后再试。"
+
+
+async def test_gateway_reads_and_updates_conversation_summary(
+    text_message: UnifiedMessage,
+) -> None:
+    backend = RecordingBackend(reply="summary reply")
+    summary_store = RecordingSummaryStore()
+    gateway = Gateway(backend, summary_store=summary_store)
+
+    reply = await gateway.route(text_message)
+
+    assert reply == "summary reply"
+    assert text_message.conversation_summary == "previous summary"
+    assert summary_store.get_calls == [(PlatformType.FEISHU, "user-1")]
+    assert summary_store.update_calls == [
+        (PlatformType.FEISHU, "user-1", "hello", "summary reply")
+    ]
+
+
+async def test_gateway_does_not_update_summary_when_backend_raises(
+    text_message: UnifiedMessage,
+) -> None:
+    summary_store = RecordingSummaryStore()
+    gateway = Gateway(RaisingBackend(), summary_store=summary_store)
+
+    reply = await gateway.route(text_message)
+
+    assert reply == "抱歉，服务暂时不可用，请稍后再试。"
+    assert summary_store.update_calls == []
