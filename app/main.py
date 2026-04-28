@@ -14,6 +14,7 @@ from app.core.gateway import Gateway
 from app.core.models import MessageType, UnifiedMessage
 from app.core.session import ConversationSummaryStore, SessionStore
 from app.platforms.feishu import FeishuAdapter
+from app.services.dify_files import DifyFileUploadError, DifyFileUploadService
 from app.services.feishu_files import FeishuFileDownloadError, FeishuFileService
 from app.services.file_parser import FileParserService
 
@@ -89,6 +90,14 @@ def get_file_parser_service() -> FileParserService:
     return service
 
 
+def get_dify_file_upload_service() -> DifyFileUploadService:
+    service = getattr(app.state, "dify_file_upload_service", None)
+    if service is None:
+        service = DifyFileUploadService()
+        app.state.dify_file_upload_service = service
+    return service
+
+
 def get_health_backends() -> dict[str, Any]:
     backends = getattr(app.state, "health_backends", None)
     if backends is None:
@@ -156,6 +165,21 @@ async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
                 "文件下载失败，请稍后重试",
             )
             return {"ok": True}
+        except DifyFileUploadError:
+            logger.exception(
+                "dify attachment upload failed",
+                extra={
+                    "event": "dify_attachment_processing",
+                    "message_id": incoming.message_id,
+                },
+            )
+            await _send_feishu_text_reply(
+                adapter,
+                incoming,
+                feishu_receive_id,
+                "图片处理失败，请稍后重试",
+            )
+            return {"ok": True}
 
     reply = await get_gateway().route(incoming)
     await _send_feishu_text_reply(adapter, incoming, feishu_receive_id, reply)
@@ -175,7 +199,13 @@ async def _process_feishu_attachments(incoming: UnifiedMessage) -> None:
             attachment,
             file_type,
         )
-        if incoming.message_type is MessageType.FILE:
+        if incoming.message_type is MessageType.IMAGE:
+            await get_dify_file_upload_service().upload_attachment(
+                attachment,
+                incoming.user_id,
+                dify_file_type="image",
+            )
+        elif incoming.message_type is MessageType.FILE:
             parser_service.parse_attachment(attachment)
 
 

@@ -99,5 +99,7 @@ def test_attachment_defaults_are_empty_value_compatible() -> None:
         "url": None,
         "local_path": None,
         "parsed_text": None,
+        "dify_upload_file_id": None,
+        "dify_file_type": None,
         "file_tags": [],
     }

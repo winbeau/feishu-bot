@@ -24,6 +24,8 @@ class Attachment(BaseModel):
     url: str | None = None
     local_path: str | None = None
     parsed_text: str | None = None
+    dify_upload_file_id: str | None = None
+    dify_file_type: str | None = None
     file_tags: list[str] = Field(default_factory=list)
 
 

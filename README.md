@@ -62,6 +62,8 @@ FEISHU_VERIFICATION_TOKEN=你的飞书事件订阅 Verification Token
 DIFY_API_KEY=你的 Dify App API Key
 DIFY_BASE_URL=http://你的-dify-服务器/v1
 DIFY_RESPONSE_MODE=streaming
+DIFY_FILE_UPLOAD_TIMEOUT_SECONDS=30
+DIFY_FILE_UPLOAD_MAX_BYTES=15728640
 
 REDIS_URL=redis://localhost:6380/0
 
@@ -81,6 +83,12 @@ SUMMARY_MAX_CHARS=2000
 - 不要提交 `.env`。
 - 不要把真实 `DIFY_API_KEY`、`FEISHU_APP_SECRET` 写进 README、代码或公开 issue。
 - 如果真实 key 曾经进入 GitHub 提交历史，应立即在 Dify/飞书后台轮换密钥。
+
+Dify 图片要求：
+
+- Dify 应用需要开启图片上传能力。
+- 飞书图片会先下载到本地，再上传到 Dify `/files/upload`，聊天请求会通过 `upload_file_id` 引用该图片。
+- `DIFY_FILE_UPLOAD_MAX_BYTES` 只限制上传给 Dify 的文件大小；飞书下载大小仍由 `FEISHU_FILE_MAX_BYTES` 控制。
 
 ## 本地开发
 
@@ -381,6 +389,7 @@ git push
 
 - 检查 `DIFY_BASE_URL` 是否以 `/v1` 结尾。
 - 检查 `DIFY_API_KEY` 是否属于当前 Dify 应用。
+- 如果图片消息失败，检查 Dify 应用是否开启图片上传能力，以及 `DIFY_FILE_UPLOAD_MAX_BYTES` 是否小于实际图片大小。
 - 在服务器上直接执行：
 
 ```bash

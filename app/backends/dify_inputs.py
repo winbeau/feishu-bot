@@ -61,17 +61,30 @@ class DifyInputBuilder:
         }
 
     def build_files(self, message: UnifiedMessage) -> list[dict[str, str]]:
-        if message.message_type is not MessageType.IMAGE:
-            return []
-        return [
-            {
-                "type": "image",
-                "transfer_method": "remote_url",
-                "url": attachment.url or "",
-            }
-            for attachment in message.attachments
-            if self._is_public_http_url(attachment.url)
-        ]
+        files: list[dict[str, str]] = []
+        for attachment in message.attachments:
+            if attachment.dify_upload_file_id and attachment.dify_file_type:
+                files.append(
+                    {
+                        "type": attachment.dify_file_type,
+                        "transfer_method": "local_file",
+                        "upload_file_id": attachment.dify_upload_file_id,
+                    }
+                )
+                continue
+
+            if (
+                message.message_type is MessageType.IMAGE
+                and self._is_public_http_url(attachment.url)
+            ):
+                files.append(
+                    {
+                        "type": "image",
+                        "transfer_method": "remote_url",
+                        "url": attachment.url or "",
+                    }
+                )
+        return files
 
     def _attachment_metadata(self, attachment: Attachment) -> dict[str, Any]:
         return {
@@ -80,6 +93,8 @@ class DifyInputBuilder:
             "mime_type": attachment.mime_type,
             "size": attachment.size,
             "url": attachment.url,
+            "dify_upload_file_id": attachment.dify_upload_file_id,
+            "dify_file_type": attachment.dify_file_type,
             "file_tags": attachment.file_tags,
         }
 
