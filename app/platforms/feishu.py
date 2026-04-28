@@ -27,7 +27,7 @@ class FeishuAdapter(PlatformAdapter):
         if event_type != "im.message.receive_v1":
             raise ValueError(f"unsupported feishu event type: {event_type}")
         message_type = message.get("message_type")
-        if message_type not in {"text", "image", "file"}:
+        if message_type not in {"text", "image", "file", "post"}:
             raise ValueError(
                 f"unsupported feishu message type: {message.get('message_type')}"
             )
@@ -43,7 +43,7 @@ class FeishuAdapter(PlatformAdapter):
             parsed_message_type = MessageType.IMAGE
             image_key = content.get("image_key")
             attachments.append(Attachment(file_key=image_key))
-        else:
+        elif message_type == "file":
             parsed_message_type = MessageType.FILE
             attachments.append(
                 Attachment(
@@ -53,6 +53,9 @@ class FeishuAdapter(PlatformAdapter):
                     size=content.get("size"),
                 )
             )
+        else:
+            text, attachments = self._parse_post_content(content)
+            parsed_message_type = MessageType.IMAGE if attachments else MessageType.TEXT
 
         return UnifiedMessage(
             platform=PlatformType.FEISHU,
@@ -144,3 +147,28 @@ class FeishuAdapter(PlatformAdapter):
         if not isinstance(payload, dict):
             return {}
         return payload
+
+    def _parse_post_content(self, content: dict[str, Any]) -> tuple[str, list[Attachment]]:
+        text_parts: list[str] = []
+        attachments: list[Attachment] = []
+        title = content.get("title")
+        if isinstance(title, str) and title:
+            text_parts.append(title)
+
+        for line in content.get("content") or []:
+            if not isinstance(line, list):
+                continue
+            for item in line:
+                if not isinstance(item, dict):
+                    continue
+                tag = item.get("tag")
+                if tag == "text" and isinstance(item.get("text"), str):
+                    text_parts.append(item["text"])
+                elif tag == "a" and isinstance(item.get("text"), str):
+                    text_parts.append(item["text"])
+                elif tag == "at" and isinstance(item.get("user_name"), str):
+                    text_parts.append(item["user_name"])
+                elif tag == "img" and isinstance(item.get("image_key"), str):
+                    attachments.append(Attachment(file_key=item["image_key"]))
+
+        return "\n".join(part for part in text_parts if part), attachments

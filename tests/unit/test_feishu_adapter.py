@@ -177,6 +177,52 @@ async def test_feishu_parse_incoming_file_event(feishu_event: dict) -> None:
     assert message.attachments[0].size == 123
 
 
+async def test_feishu_parse_incoming_post_event_with_image(feishu_event: dict) -> None:
+    feishu_event["event"]["message"]["message_type"] = "post"
+    feishu_event["event"]["message"]["content"] = json.dumps(
+        {
+            "title": "image post",
+            "content": [
+                [
+                    {"tag": "text", "text": "caption"},
+                    {"tag": "img", "image_key": "post_image_key"},
+                ]
+            ],
+        }
+    )
+    adapter = FeishuAdapter()
+
+    message = await adapter.parse_incoming(feishu_event)
+
+    assert message.message_type is MessageType.IMAGE
+    assert message.content == "image post\ncaption"
+    assert len(message.attachments) == 1
+    assert message.attachments[0].file_key == "post_image_key"
+
+
+async def test_feishu_parse_incoming_post_event_without_image_as_text(
+    feishu_event: dict,
+) -> None:
+    feishu_event["event"]["message"]["message_type"] = "post"
+    feishu_event["event"]["message"]["content"] = json.dumps(
+        {
+            "content": [
+                [
+                    {"tag": "text", "text": "hello "},
+                    {"tag": "a", "text": "link", "href": "https://example.test"},
+                ]
+            ],
+        }
+    )
+    adapter = FeishuAdapter()
+
+    message = await adapter.parse_incoming(feishu_event)
+
+    assert message.message_type is MessageType.TEXT
+    assert message.content == "hello \nlink"
+    assert message.attachments == []
+
+
 async def test_feishu_send_message_gets_token_and_sends_text_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
