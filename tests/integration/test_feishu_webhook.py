@@ -2,9 +2,10 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.core.models import UnifiedMessage
-from app.main import app, get_gateway
+from app.main import app, get_gateway, _public_file_base_url_from_request
 from app.platforms.feishu import FeishuAdapter
 from app.services.feishu_files import FeishuFileDownloadError
 from app.services.public_files import PublicFilePublishError
@@ -121,6 +122,47 @@ def test_get_gateway_builds_default_production_gateway() -> None:
             del app.state.gateway
         if existing is not None:
             app.state.gateway = existing
+
+
+def test_public_file_base_url_prefers_explicit_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_FILE_BASE_URL", "https://configured.example.test")
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/feishu/webhook",
+            "headers": [(b"host", b"runtime.example.test")],
+            "scheme": "http",
+            "server": ("runtime.example.test", 80),
+            "client": ("127.0.0.1", 12345),
+        }
+    )
+
+    assert _public_file_base_url_from_request(request) is None
+
+
+def test_public_file_base_url_falls_back_to_forwarded_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PUBLIC_FILE_BASE_URL", raising=False)
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/feishu/webhook",
+            "headers": [
+                (b"x-forwarded-proto", b"https"),
+                (b"x-forwarded-host", b"bot.example.test"),
+            ],
+            "scheme": "http",
+            "server": ("127.0.0.1", 8000),
+            "client": ("127.0.0.1", 12345),
+        }
+    )
+
+    assert _public_file_base_url_from_request(request) == "https://bot.example.test"
 
 
 @pytest.fixture

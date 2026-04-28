@@ -99,11 +99,16 @@ def get_file_parser_service() -> FileParserService:
     return service
 
 
-def get_public_file_service() -> PublicFileService:
+def get_public_file_service(base_url: str | None = None) -> PublicFileService:
     service = getattr(app.state, "public_file_service", None)
-    if service is None:
-        service = PublicFileService()
-        app.state.public_file_service = service
+    if service is not None:
+        return service
+
+    if base_url:
+        return PublicFileService(base_url=base_url)
+
+    service = PublicFileService()
+    app.state.public_file_service = service
     return service
 
 
@@ -158,7 +163,10 @@ async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
 
     if incoming.attachments:
         try:
-            await _process_feishu_attachments(incoming)
+            await _process_feishu_attachments(
+                incoming,
+                public_file_base_url=_public_file_base_url_from_request(request),
+            )
         except FeishuFileDownloadError:
             logger.exception(
                 "feishu attachment download failed",
@@ -195,14 +203,17 @@ async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
     return {"ok": True}
 
 
-async def _process_feishu_attachments(incoming: UnifiedMessage) -> None:
+async def _process_feishu_attachments(
+    incoming: UnifiedMessage,
+    public_file_base_url: str | None = None,
+) -> None:
     file_type = "image" if incoming.message_type is MessageType.IMAGE else "file"
     if not incoming.message_id:
         raise FeishuFileDownloadError("attachment message is missing message_id")
 
     file_service = get_feishu_file_service()
     parser_service = get_file_parser_service()
-    public_file_service = get_public_file_service()
+    public_file_service = get_public_file_service(public_file_base_url)
     for attachment in incoming.attachments:
         await file_service.download_attachment(
             incoming.message_id,
@@ -235,3 +246,18 @@ async def _send_feishu_text_reply(
 def _extract_feishu_chat_id(raw: dict[str, Any]) -> str | None:
     chat_id = raw.get("event", {}).get("message", {}).get("chat_id")
     return chat_id if isinstance(chat_id, str) else None
+
+
+def _public_file_base_url_from_request(request: Request) -> str | None:
+    if os.getenv("PUBLIC_FILE_BASE_URL"):
+        return None
+
+    headers = request.headers
+    host = headers.get("x-forwarded-host") or headers.get("host")
+    if not host:
+        return str(request.base_url).rstrip("/")
+
+    scheme = headers.get("x-forwarded-proto") or request.url.scheme
+    scheme = scheme.split(",", 1)[0].strip()
+    host = host.split(",", 1)[0].strip()
+    return f"{scheme}://{host}".rstrip("/")
