@@ -1,0 +1,57 @@
+=== Session 000: Project Created ===
+Date: 2026-04-28
+Agent: Human (project design)
+Status: DONE
+
+What was set up:
+- CLAUDE.md: AI 开发宪法，定义架构原则、禁止行为、工作流
+- feature_list.json: F001–F010 功能清单，全部 passes=false
+- prompts/00_initializer.md: 初始化 agent 提示词
+- prompts/01_coding.md: 开发 agent 提示词
+- claude-progress.txt: 本文件
+
+Feature status: F001–F010 全部 passes=false（无任何实现）
+
+Next agent should: 
+  1. 运行 initializer agent（00_initializer.md）搭建项目骨架
+  2. 然后切换到 coding agent（01_coding.md）从 F001 开始实现
+
+=== Session 000: Initializer ===
+Date: 2026-04-28
+Agent: Initializer
+Status: DONE
+
+What was set up:
+- .env.example: environment variable template for platform, Dify, and Redis settings
+- .gitignore: ignores local env/cache files
+- .python-version: Python 3.12
+- app/__init__.py: package marker
+- app/main.py: FastAPI app scaffold
+- app/core/__init__.py: package marker
+- app/core/models.py: UnifiedMessage, MessageType, and PlatformType stubs
+- app/core/gateway.py: Gateway stub
+- app/core/session.py: SessionStore stub
+- app/core/dedup.py: DeduplicationStore stub
+- app/platforms/__init__.py: package marker
+- app/platforms/base.py: PlatformAdapter ABC scaffold
+- app/platforms/feishu.py: FeishuAdapter stub
+- app/platforms/wechat.py: WechatAdapter stub
+- app/platforms/qq.py: QQAdapter stub
+- app/backends/__init__.py: package marker
+- app/backends/base.py: LLMBackend ABC scaffold
+- app/backends/dify.py: DifyBackend stub
+- tests/__init__.py: package marker
+- tests/conftest.py: pytest fixtures
+- tests/unit/__init__.py: package marker
+- tests/unit/test_models.py: passing scaffold import smoke test
+- tests/integration/__init__.py: package marker
+- pyproject.toml: uv project config and dependencies
+- uv.lock: locked dependency graph
+- docker-compose.yml: Redis Compose service
+- init.sh: uv sync, Compose Redis startup, and pytest runner
+- Pytest runner works: uv run pytest tests/ -q passes
+- Redis starts: docker compose up -d redis starts redis:7-alpine on host port 6380 because local redis-server.service occupies 6379
+
+Feature status: F001-F010 passes=false
+
+Next agent should start with: F001

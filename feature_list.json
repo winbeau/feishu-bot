@@ -1,0 +1,144 @@
+[
+  {
+    "id": "F001",
+    "priority": 1,
+    "category": "core",
+    "title": "统一消息模型",
+    "description": "定义 UnifiedMessage 数据结构，可表示文本/图片/文件消息，包含 platform、session_id、user_id 字段",
+    "steps": [
+      "定义 UnifiedMessage Pydantic 模型",
+      "定义 MessageType 枚举（text/image/file）",
+      "定义 PlatformType 枚举（feishu/wechat/qq）",
+      "单元测试：序列化/反序列化",
+      "单元测试：必填字段校验"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F002",
+    "priority": 1,
+    "category": "core",
+    "title": "平台适配器抽象接口",
+    "description": "定义 PlatformAdapter ABC，包含 parse_incoming / verify_signature / send_message / handle_challenge 四个方法",
+    "steps": [
+      "定义 PlatformAdapter 抽象基类",
+      "定义 LLMBackend 抽象基类",
+      "单元测试：无法实例化抽象类",
+      "单元测试：子类若未实现所有方法则报错"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F003",
+    "priority": 1,
+    "category": "core",
+    "title": "消息路由核心",
+    "description": "Gateway 类接收 UnifiedMessage，根据配置选择 LLMBackend，返回回复",
+    "steps": [
+      "实现 Gateway 类，通过依赖注入接受 backend",
+      "实现 route() 方法，调用 backend.chat()",
+      "单元测试：正常路由",
+      "单元测试：backend 异常时返回兜底回复"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F004",
+    "priority": 2,
+    "category": "platform",
+    "title": "飞书适配器",
+    "description": "实现 FeishuAdapter：验证 token 签名、解析文本消息事件、调用飞书发消息 API",
+    "steps": [
+      "实现 FeishuAdapter(PlatformAdapter)",
+      "实现 handle_challenge（URL 验证）",
+      "实现 verify_signature（token 校验）",
+      "实现 parse_incoming（解析 im.message.receive_v1）",
+      "实现 send_message（调用飞书 /open-apis/im/v1/messages）",
+      "集成测试：POST /feishu/webhook，mock 飞书 API，验证回复被发出"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F005",
+    "priority": 2,
+    "category": "backend",
+    "title": "Dify 后端适配器",
+    "description": "实现 DifyBackend：调用 Dify /v1/chat-messages，支持 blocking 和 streaming 两种模式",
+    "steps": [
+      "实现 DifyBackend(LLMBackend)",
+      "实现 chat() blocking 模式",
+      "实现 health_check()",
+      "单元测试：正常响应解析",
+      "单元测试：Dify 超时触发重试（最多 2 次）",
+      "单元测试：Dify 返回 4xx 时抛出 BackendError"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F006",
+    "priority": 2,
+    "category": "core",
+    "title": "会话状态管理",
+    "description": "用 Redis 存储 conversation_id（Dify 需要），以 platform+user_id 为 key，TTL 1小时",
+    "steps": [
+      "实现 SessionStore，封装 Redis get/set",
+      "单元测试：首次对话生成新 session_id",
+      "单元测试：同一用户连续对话复用 session_id",
+      "单元测试：TTL 过期后生成新 session_id"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F007",
+    "priority": 2,
+    "category": "core",
+    "title": "消息去重",
+    "description": "使用 Redis 对飞书消息 message_id 去重，防止重复处理同一消息（飞书会重试）",
+    "steps": [
+      "实现 DeduplicationStore，封装 Redis SETNX",
+      "单元测试：相同 message_id 第二次返回 False",
+      "单元测试：不同 message_id 均通过",
+      "集成测试：同一 Webhook 请求发两次，仅处理一次"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F008",
+    "priority": 3,
+    "category": "platform",
+    "title": "微信公众号适配器（占位）",
+    "description": "实现 WechatAdapter 骨架，通过所有接口方法但返回 NotImplementedError，保留扩展点",
+    "steps": [
+      "实现 WechatAdapter(PlatformAdapter) 骨架",
+      "单元测试：调用任意方法抛出 NotImplementedError",
+      "注册到平台路由表，但默认禁用"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F009",
+    "priority": 3,
+    "category": "platform",
+    "title": "QQ 频道适配器（占位）",
+    "description": "实现 QQAdapter 骨架，同 F008",
+    "steps": [
+      "实现 QQAdapter(PlatformAdapter) 骨架",
+      "单元测试：调用任意方法抛出 NotImplementedError"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F010",
+    "priority": 3,
+    "category": "ops",
+    "title": "健康检查 + 配置校验",
+    "description": "GET /health 返回所有 backend 健康状态；启动时若必要环境变量缺失则快速失败",
+    "steps": [
+      "实现 GET /health 端点",
+      "实现启动时配置校验（DIFY_API_KEY、FEISHU_APP_SECRET 等）",
+      "单元测试：backend 健康时 /health 返回 200",
+      "单元测试：backend 异常时 /health 返回 503"
+    ],
+    "passes": false
+  }
+]

@@ -1,0 +1,21 @@
+[project]
+name = "bot-gateway"
+version = "0.1.0"
+description = "Multi-platform message gateway for LLM backends."
+readme = "CLAUDE.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "httpx",
+    "redis",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
