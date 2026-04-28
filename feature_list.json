@@ -56,7 +56,7 @@
       "实现 send_message（调用飞书 /open-apis/im/v1/messages）",
       "集成测试：POST /feishu/webhook，mock 飞书 API，验证回复被发出"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F005",

@@ -119,3 +119,30 @@ Tests:
 Feature status: F001-F003 passes=true; F004-F010 passes=false
 
 Next agent should start with: F004
+
+=== Session 004: F004 Feishu Adapter ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- tests/unit/test_feishu_adapter.py: TDD coverage for URL challenge handling, token mismatch, text event parsing, and mocked Feishu send-message API calls
+- tests/integration/test_feishu_webhook.py: POST /feishu/webhook coverage with injected fake gateway and fake Feishu HTTP client
+- app/platforms/feishu.py: token-only FeishuAdapter implementation for url_verification, FEISHU_VERIFICATION_TOKEN validation, im.message.receive_v1 text parsing, tenant access token retrieval, and text replies via chat_id
+- app/main.py: POST /feishu/webhook route with challenge-first handling, token validation, gateway routing, and Feishu reply sending
+- feature_list.json: F004 passes=true
+
+Scope notes:
+- Verification is token-only: no encrypted callback handling and no X-Lark-Signature validation
+- session_id maps to Feishu chat_id, and outbound replies use receive_id_type=chat_id
+- Only text messages are supported in F004
+
+Tests:
+- RED confirmed: uv run pytest -k "test_feishu" -v failed against Feishu stub and missing webhook behavior
+- GREEN confirmed: uv run pytest -k "test_feishu" -v passed, 6 tests
+- Full suite: uv run pytest tests/ -q passed, 30 tests
+- Architecture check: rg "app\\.platforms|app\\.backends" app/core produced no matches
+
+Feature status: F001-F004 passes=true; F005-F010 passes=false
+
+Next agent should start with: F005
