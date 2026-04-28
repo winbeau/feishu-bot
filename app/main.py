@@ -21,6 +21,10 @@ from app.services.public_files import PublicFilePublishError, PublicFileService
 
 logger = logging.getLogger(__name__)
 load_dotenv()
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 REQUIRED_ENV_VARS = (
     "DIFY_API_KEY",
