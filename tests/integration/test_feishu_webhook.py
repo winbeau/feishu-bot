@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.models import UnifiedMessage
-from app.main import app
+from app.main import app, get_gateway
 from app.platforms.feishu import FeishuAdapter
 from app.services.feishu_files import FeishuFileDownloadError
 
@@ -87,6 +87,22 @@ class FakeHTTPClient:
         if url.endswith("/open-apis/auth/v3/tenant_access_token/internal"):
             return FakeResponse({"code": 0, "tenant_access_token": "tenant-token"})
         return FakeResponse({"code": 0})
+
+
+def test_get_gateway_builds_default_production_gateway() -> None:
+    existing = getattr(app.state, "gateway", None)
+    if existing is not None:
+        del app.state.gateway
+
+    try:
+        gateway = get_gateway()
+
+        assert gateway is app.state.gateway
+    finally:
+        if hasattr(app.state, "gateway"):
+            del app.state.gateway
+        if existing is not None:
+            app.state.gateway = existing
 
 
 @pytest.fixture

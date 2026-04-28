@@ -10,8 +10,9 @@ from dotenv import load_dotenv
 
 from app.backends.dify import DifyBackend
 from app.core.dedup import DeduplicationStore
+from app.core.gateway import Gateway
 from app.core.models import MessageType, UnifiedMessage
-from app.core.session import SessionStore
+from app.core.session import ConversationSummaryStore, SessionStore
 from app.platforms.feishu import FeishuAdapter
 from app.services.feishu_files import FeishuFileDownloadError, FeishuFileService
 from app.services.file_parser import FileParserService
@@ -51,7 +52,8 @@ def get_feishu_adapter() -> FeishuAdapter:
 def get_gateway():
     gateway = getattr(app.state, "gateway", None)
     if gateway is None:
-        raise HTTPException(status_code=503, detail="gateway is not configured")
+        gateway = Gateway(DifyBackend(), summary_store=ConversationSummaryStore())
+        app.state.gateway = gateway
     return gateway
 
 
