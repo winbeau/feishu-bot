@@ -171,3 +171,28 @@ Tests:
 Feature status: F001-F005 passes=true; F006-F010 passes=false
 
 Next agent should start with: F006
+
+=== Session 006: F006 Session State Management ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- tests/unit/test_session_store.py: TDD coverage for first-session creation, existing-session reuse with TTL refresh, TTL expiry creating a new session, and get/set Redis value wrapping
+- app/core/session.py: Redis-backed SessionStore with injectable client/id factory, default REDIS_URL lookup, session:{platform}:{user_id} keys, 3600-second TTL writes, byte decoding, and sliding TTL refresh on reuse
+- feature_list.json: F006 passes=true
+
+Scope notes:
+- F006 is limited to session storage; Gateway, DifyBackend, FastAPI routes, and Dify response writeback were not changed
+- Session IDs are generated locally with uuid.uuid4().hex by default and can be overridden in tests
+- app/core/session.py imports only app.core.models from project layers; no app.backends or app.platforms dependency was introduced
+
+Tests:
+- RED confirmed: uv run pytest -k "test_session_store" -v failed against the SessionStore stub with TypeError: SessionStore() takes no arguments
+- GREEN confirmed: uv run pytest -k "test_session_store" -v passed, 4 tests
+- Full suite: uv run pytest tests/ -q passed, 42 tests
+- Architecture check: rg "app\\.platforms|app\\.backends" app/core produced no matches
+
+Feature status: F001-F006 passes=true; F007-F010 passes=false
+
+Next agent should start with: F007

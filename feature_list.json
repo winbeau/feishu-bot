@@ -86,7 +86,7 @@
       "单元测试：同一用户连续对话复用 session_id",
       "单元测试：TTL 过期后生成新 session_id"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F007",
