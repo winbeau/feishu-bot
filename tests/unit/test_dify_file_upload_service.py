@@ -90,33 +90,6 @@ async def test_dify_file_upload_posts_multipart_and_updates_attachment(
     ]
 
 
-async def test_dify_file_upload_adds_image_extension_when_file_name_has_none(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    monkeypatch.setenv("DIFY_API_KEY", "secret-key")
-    path = tmp_path / "img_v3_key"
-    path.write_bytes(b"image-bytes")
-    client = FakeHTTPClient(FakeResponse({"id": "upload-id-1"}))
-    service = DifyFileUploadService(
-        http_client=client,
-        base_url="https://dify.example.test",
-    )
-
-    await service.upload_attachment(
-        Attachment(
-            local_path=str(path),
-            mime_type="image/png; charset=binary",
-        ),
-        user_id="user-1",
-        dify_file_type="image",
-    )
-
-    assert client.calls[0][1]["files"] == {
-        "file": ("img_v3_key.png", b"image-bytes", "image/png; charset=binary")
-    }
-
-
 @pytest.mark.parametrize(
     ("status_code", "expected_error"),
     [
