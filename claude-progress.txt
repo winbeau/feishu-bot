@@ -225,3 +225,27 @@ Tests:
 Feature status: F001-F007 passes=true; F008-F010 passes=false
 
 Next agent should start with: F008
+
+=== Session 010: F010 Health Check + Configuration Validation ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- tests/integration/test_health.py: TDD coverage for healthy, unhealthy, and exception backend health results, plus required configuration validation and startup failure behavior
+- app/main.py: startup lifespan configuration validation for DIFY_API_KEY, FEISHU_APP_ID, FEISHU_APP_SECRET, and FEISHU_VERIFICATION_TOKEN
+- app/main.py: GET /health endpoint with default DifyBackend health check and injectable app.state.health_backends for tests
+- feature_list.json: F010 passes=true
+
+Scope notes:
+- F010 only; F008/F009 platform placeholders were not implemented
+- DIFY_BASE_URL, DIFY_RESPONSE_MODE, and REDIS_URL remain optional because existing code supplies defaults
+- app/core remains independent of app.backends and app.platforms
+
+Tests:
+- RED confirmed: uv run pytest -k "test_health or test_required_configuration" -v failed on missing validate_required_configuration
+- GREEN confirmed: uv run pytest -k "test_health or test_required_configuration" -v passed, 6 tests
+- Full suite: uv run pytest tests/ -q passed, 53 tests
+- Architecture check: rg "app\\.platforms|app\\.backends" app/core produced no matches
+
+Feature status: F001-F007 and F010 pass=true; F008-F009 passes=false

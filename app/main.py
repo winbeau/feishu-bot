@@ -1,10 +1,39 @@
-from fastapi import FastAPI, HTTPException, Request, Response
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
 
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
+
+from app.backends.dify import DifyBackend
 from app.core.dedup import DeduplicationStore
 from app.core.models import UnifiedMessage
 from app.platforms.feishu import FeishuAdapter
 
-app = FastAPI()
+REQUIRED_ENV_VARS = (
+    "DIFY_API_KEY",
+    "FEISHU_APP_ID",
+    "FEISHU_APP_SECRET",
+    "FEISHU_VERIFICATION_TOKEN",
+)
+
+
+def validate_required_configuration() -> None:
+    missing = [name for name in REQUIRED_ENV_VARS if not os.getenv(name)]
+    if missing:
+        raise RuntimeError(
+            "missing required environment variables: " + ", ".join(missing)
+        )
+
+
+@asynccontextmanager
+async def lifespan(app_: FastAPI) -> AsyncIterator[None]:
+    validate_required_configuration()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 def get_feishu_adapter() -> FeishuAdapter:
@@ -24,6 +53,29 @@ def get_deduplication_store() -> DeduplicationStore:
         store = DeduplicationStore()
         app.state.deduplication_store = store
     return store
+
+
+def get_health_backends() -> dict[str, Any]:
+    backends = getattr(app.state, "health_backends", None)
+    if backends is None:
+        return {"dify": DifyBackend()}
+    return dict(backends)
+
+
+@app.get("/health", response_model=None)
+async def health() -> JSONResponse:
+    backend_statuses: dict[str, bool] = {}
+    for name, backend in get_health_backends().items():
+        try:
+            backend_statuses[name] = bool(await backend.health_check())
+        except Exception:
+            backend_statuses[name] = False
+
+    ok = all(backend_statuses.values())
+    return JSONResponse(
+        {"ok": ok, "backends": backend_statuses},
+        status_code=200 if ok else 503,
+    )
 
 
 @app.post("/feishu/webhook", response_model=None)

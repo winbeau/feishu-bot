@@ -139,6 +139,6 @@
       "单元测试：backend 健康时 /health 返回 200",
       "单元测试：backend 异常时 /health 返回 503"
     ],
-    "passes": false
+    "passes": true
   }
 ]
