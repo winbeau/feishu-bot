@@ -7,7 +7,7 @@
 - 飞书 webhook：支持 URL challenge、token 校验、消息去重、文本回复。
 - 统一消息模型：`UnifiedMessage` 支持 `text`、`image`、`file` 和附件 metadata。
 - 会话管理：按 `platform + user_id` 在 Redis 中维护业务 session id。
-- 附件链路：下载飞书 image/file 到本地临时目录，文件解析后写入 `parsed_text` 和 `file_tags`。
+- 附件链路：下载飞书 image/file 到本地临时目录；图片发布为公网 URL 后传给 Dify，文件解析后写入 `parsed_text` 和 `file_tags`。
 - 文件解析：支持 `txt`、`md`、`csv`、`pptx`、`pdf`。
 - Dify 后端：默认 `streaming`，构造 `inputs`，公网图片 URL 才作为 Dify `files.remote_url` 传递。
 - 健康检查：`GET /health` 检查 Dify 后端可用性。
@@ -15,7 +15,6 @@
 未完成或占位：
 
 - 微信、QQ 适配器尚未接入主链路。
-- 当前不提供公网文件托管，飞书下载后的本地文件不会作为 remote URL 传给 Dify。
 - 对话摘要当前是简单拼接截断，不调用 LLM 生成摘要。
 
 ## 技术栈
@@ -64,6 +63,9 @@ DIFY_BASE_URL=http://你的-dify-服务器/v1
 DIFY_RESPONSE_MODE=streaming
 DIFY_FILE_UPLOAD_TIMEOUT_SECONDS=30
 DIFY_FILE_UPLOAD_MAX_BYTES=15728640
+DIFY_IMAGE_DEFAULT_QUERY=请分析这张图片
+PUBLIC_FILE_BASE_URL=https://你的机器人域名
+PUBLIC_FILE_DIR=/tmp/feishu-bot-public-files
 
 REDIS_URL=redis://localhost:6380/0
 
@@ -87,8 +89,11 @@ SUMMARY_MAX_CHARS=2000
 Dify 图片要求：
 
 - Dify 应用需要开启图片上传能力。
-- 飞书图片会先下载到本地，再上传到 Dify `/files/upload`，聊天请求会通过 `upload_file_id` 引用该图片。
-- `DIFY_FILE_UPLOAD_MAX_BYTES` 只限制上传给 Dify 的文件大小；飞书下载大小仍由 `FEISHU_FILE_MAX_BYTES` 控制。
+- 飞书图片会先下载到本地，再复制到 `PUBLIC_FILE_DIR`，通过 `PUBLIC_FILE_BASE_URL/public/files/<随机文件名>` 生成 Dify 可访问的公网 URL。
+- 聊天请求会在顶层 `files` 字段使用 Dify 官方 `remote_url` 方式引用图片，同时 `inputs.image_urls` 也会包含该 URL。
+- `PUBLIC_FILE_BASE_URL` 推荐配置为飞书 webhook 同一个 HTTPS 域名；临时只用 IP 时可以配置为 `http://120.46.94.148`，前提是 Dify 能访问该地址。
+- 纯图片消息没有文本时，`query` 默认使用 `DIFY_IMAGE_DEFAULT_QUERY`。
+- `DIFY_FILE_UPLOAD_MAX_BYTES` 只限制保留的 Dify 文件上传服务；当前飞书图片主链路不调用 `/files/upload`。飞书下载大小仍由 `FEISHU_FILE_MAX_BYTES` 控制。
 
 ## 本地开发
 
@@ -173,7 +178,7 @@ Dify 应用需要在用户输入表单中配置这些变量，当前代码会通
 - `conversation_id` 固定传空字符串。
 - `user` 使用飞书用户 open_id。
 - `file_list`、`image_urls`、`file_tags` 是 JSON 字符串。
-- 只有附件里存在公网 `http(s)` 图片 URL 时，才会加入 Dify `files`。
+- 飞书图片会由服务发布为公网 `http(s)` 图片 URL，并加入 Dify `files.remote_url`。
 - 本地下载路径不会传给 Dify `remote_url`。
 
 ## 服务器部署

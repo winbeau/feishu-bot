@@ -61,12 +61,14 @@ async def test_feishu_file_service_downloads_file_to_local_path(
     monkeypatch.setenv("FEISHU_APP_ID", "app-id")
     monkeypatch.setenv("FEISHU_APP_SECRET", "app-secret")
     http_client = FakeHTTPClient()
+    http_client.get_response.headers = {"content-type": "image/png; charset=binary"}
     service = FeishuFileService(http_client=http_client, download_dir=tmp_path)
     attachment = Attachment(file_key="file-key", file_name="report.csv")
 
     result = await service.download_attachment("message-id", attachment, "file")
 
     assert result.local_path == str(tmp_path / "file-key_report.csv")
+    assert result.mime_type == "image/png"
     assert (tmp_path / "file-key_report.csv").read_bytes() == b"downloaded"
     assert http_client.calls[1][1] == (
         "https://open.feishu.cn/open-apis/im/v1/messages/message-id"

@@ -115,6 +115,9 @@ class FeishuFileService:
         path = self._download_dir / self._safe_file_name(attachment)
         path.write_bytes(content)
         attachment.local_path = str(path)
+        response_mime_type = self._response_mime_type(response)
+        if response_mime_type:
+            attachment.mime_type = response_mime_type
         if attachment.url and not self._is_public_http_url(attachment.url):
             attachment.url = None
         logger.info(
@@ -204,3 +207,12 @@ class FeishuFileService:
     def _is_public_http_url(self, url: str) -> bool:
         parsed = urlparse(url)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    def _response_mime_type(self, response: Any) -> str | None:
+        headers = getattr(response, "headers", {}) or {}
+        if not hasattr(headers, "get"):
+            return None
+        content_type = headers.get("content-type") or headers.get("Content-Type")
+        if not isinstance(content_type, str):
+            return None
+        return content_type.split(";", 1)[0].strip().lower() or None

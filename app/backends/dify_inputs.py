@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Any
 from urllib.parse import urlparse
 
@@ -12,14 +13,14 @@ class DifyInputBuilder:
         session_id: str,
         response_mode: str,
     ) -> dict[str, Any]:
+        files = self.build_files(message)
         payload: dict[str, Any] = {
             "inputs": self.build_inputs(message, session_id),
-            "query": message.content,
+            "query": self._query(message, files),
             "response_mode": response_mode,
             "conversation_id": "",
             "user": message.user_id,
         }
-        files = self.build_files(message)
         if files:
             payload["files"] = files
         return payload
@@ -63,16 +64,6 @@ class DifyInputBuilder:
     def build_files(self, message: UnifiedMessage) -> list[dict[str, str]]:
         files: list[dict[str, str]] = []
         for attachment in message.attachments:
-            if attachment.dify_upload_file_id and attachment.dify_file_type:
-                files.append(
-                    {
-                        "type": attachment.dify_file_type,
-                        "transfer_method": "local_file",
-                        "upload_file_id": attachment.dify_upload_file_id,
-                    }
-                )
-                continue
-
             if (
                 message.message_type is MessageType.IMAGE
                 and self._is_public_http_url(attachment.url)
@@ -84,6 +75,17 @@ class DifyInputBuilder:
                         "url": attachment.url or "",
                     }
                 )
+                continue
+
+            if attachment.dify_upload_file_id and attachment.dify_file_type:
+                files.append(
+                    {
+                        "type": attachment.dify_file_type,
+                        "transfer_method": "local_file",
+                        "upload_file_id": attachment.dify_upload_file_id,
+                    }
+                )
+                continue
         return files
 
     def _attachment_metadata(self, attachment: Attachment) -> dict[str, Any]:
@@ -103,3 +105,14 @@ class DifyInputBuilder:
             return False
         parsed = urlparse(url)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    def _query(
+        self,
+        message: UnifiedMessage,
+        files: list[dict[str, str]],
+    ) -> str:
+        if message.content:
+            return message.content
+        if any(file.get("type") == "image" for file in files):
+            return os.getenv("DIFY_IMAGE_DEFAULT_QUERY") or "请分析这张图片"
+        return message.content

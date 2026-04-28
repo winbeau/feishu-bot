@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from app.core.models import UnifiedMessage
 from app.main import app, get_gateway
 from app.platforms.feishu import FeishuAdapter
-from app.services.dify_files import DifyFileUploadError
 from app.services.feishu_files import FeishuFileDownloadError
+from app.services.public_files import PublicFilePublishError
 
 
 class FakeGateway:
@@ -61,17 +61,16 @@ class FakeFileService:
         return attachment
 
 
-class FakeDifyUploadService:
+class FakePublicFileService:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
-        self.calls: list[tuple[str, str, str]] = []
+        self.calls = []
 
-    async def upload_attachment(self, attachment, user_id, dify_file_type):
-        self.calls.append((attachment.file_key, user_id, dify_file_type))
+    def publish_image(self, attachment):
+        self.calls.append(attachment.file_key)
         if self.fail:
-            raise DifyFileUploadError("boom")
-        attachment.dify_upload_file_id = f"upload-{attachment.file_key}"
-        attachment.dify_file_type = dify_file_type
+            raise PublicFilePublishError("boom")
+        attachment.url = f"https://bot.example.test/public/files/{attachment.file_key}.png"
         return attachment
 
 
@@ -242,14 +241,14 @@ def test_feishu_webhook_deduplicates_retried_image_before_file_work(
     deduplication_store = FakeDeduplicationStore()
     session_store = FakeSessionStore()
     file_service = FakeFileService()
-    upload_service = FakeDifyUploadService()
+    public_file_service = FakePublicFileService()
     app.state.feishu_adapter = FeishuAdapter(http_client=http_client)
     app.state.gateway = gateway
     app.state.deduplication_store = deduplication_store
     app.state.session_store = session_store
     app.state.feishu_file_service = file_service
     app.state.file_parser_service = FakeParserService()
-    app.state.dify_file_upload_service = upload_service
+    app.state.public_file_service = public_file_service
 
     try:
         first_response = test_client.post("/feishu/webhook", json=feishu_payload)
@@ -261,13 +260,13 @@ def test_feishu_webhook_deduplicates_retried_image_before_file_work(
         del app.state.session_store
         del app.state.feishu_file_service
         del app.state.file_parser_service
-        del app.state.dify_file_upload_service
+        del app.state.public_file_service
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200
     assert len(gateway.messages) == 1
     assert file_service.calls == [("om_message_1", "image-key", "image")]
-    assert upload_service.calls == [("image-key", "ou_user_1", "image")]
+    assert public_file_service.calls == ["image-key"]
     assert deduplication_store.message_ids == ["om_message_1", "om_message_1"]
 
 
@@ -298,7 +297,7 @@ def test_feishu_webhook_downloads_and_parses_file_before_gateway(
     app.state.session_store = FakeSessionStore()
     app.state.feishu_file_service = file_service
     app.state.file_parser_service = parser_service
-    app.state.dify_file_upload_service = FakeDifyUploadService()
+    app.state.public_file_service = FakePublicFileService()
 
     try:
         response = test_client.post("/feishu/webhook", json=feishu_payload)
@@ -309,7 +308,7 @@ def test_feishu_webhook_downloads_and_parses_file_before_gateway(
         del app.state.session_store
         del app.state.feishu_file_service
         del app.state.file_parser_service
-        del app.state.dify_file_upload_service
+        del app.state.public_file_service
 
     assert response.status_code == 200
     assert len(gateway.messages) == 1
@@ -340,7 +339,7 @@ def test_feishu_webhook_replies_fixed_message_when_download_fails(
     app.state.session_store = FakeSessionStore()
     app.state.feishu_file_service = FakeFileService(fail=True)
     app.state.file_parser_service = FakeParserService()
-    app.state.dify_file_upload_service = FakeDifyUploadService()
+    app.state.public_file_service = FakePublicFileService()
 
     try:
         response = test_client.post("/feishu/webhook", json=feishu_payload)
@@ -351,7 +350,7 @@ def test_feishu_webhook_replies_fixed_message_when_download_fails(
         del app.state.session_store
         del app.state.feishu_file_service
         del app.state.file_parser_service
-        del app.state.dify_file_upload_service
+        del app.state.public_file_service
 
     assert response.status_code == 200
     assert gateway.messages == []
@@ -365,7 +364,7 @@ def test_feishu_webhook_replies_fixed_message_when_download_fails(
     }
 
 
-def test_feishu_webhook_uploads_image_before_gateway(
+def test_feishu_webhook_publishes_image_before_gateway(
     monkeypatch: pytest.MonkeyPatch,
     test_client: TestClient,
     feishu_payload: dict,
@@ -380,14 +379,14 @@ def test_feishu_webhook_uploads_image_before_gateway(
     http_client = FakeHTTPClient()
     gateway = FakeGateway()
     file_service = FakeFileService()
-    upload_service = FakeDifyUploadService()
+    public_file_service = FakePublicFileService()
     app.state.feishu_adapter = FeishuAdapter(http_client=http_client)
     app.state.gateway = gateway
     app.state.deduplication_store = FakeDeduplicationStore()
     app.state.session_store = FakeSessionStore()
     app.state.feishu_file_service = file_service
     app.state.file_parser_service = FakeParserService()
-    app.state.dify_file_upload_service = upload_service
+    app.state.public_file_service = public_file_service
 
     try:
         response = test_client.post("/feishu/webhook", json=feishu_payload)
@@ -398,19 +397,20 @@ def test_feishu_webhook_uploads_image_before_gateway(
         del app.state.session_store
         del app.state.feishu_file_service
         del app.state.file_parser_service
-        del app.state.dify_file_upload_service
+        del app.state.public_file_service
 
     assert response.status_code == 200
     assert len(gateway.messages) == 1
     attachment = gateway.messages[0].attachments[0]
     assert file_service.calls == [("om_message_1", "image-key", "image")]
-    assert upload_service.calls == [("image-key", "ou_user_1", "image")]
+    assert public_file_service.calls == ["image-key"]
     assert attachment.local_path == "/tmp/downloaded-image.png"
-    assert attachment.dify_upload_file_id == "upload-image-key"
-    assert attachment.dify_file_type == "image"
+    assert attachment.url == "https://bot.example.test/public/files/image-key.png"
+    assert attachment.dify_upload_file_id is None
+    assert attachment.dify_file_type is None
 
 
-def test_feishu_webhook_uploads_post_image_before_gateway(
+def test_feishu_webhook_publishes_post_image_before_gateway(
     monkeypatch: pytest.MonkeyPatch,
     test_client: TestClient,
     feishu_payload: dict,
@@ -433,14 +433,14 @@ def test_feishu_webhook_uploads_post_image_before_gateway(
     http_client = FakeHTTPClient()
     gateway = FakeGateway()
     file_service = FakeFileService()
-    upload_service = FakeDifyUploadService()
+    public_file_service = FakePublicFileService()
     app.state.feishu_adapter = FeishuAdapter(http_client=http_client)
     app.state.gateway = gateway
     app.state.deduplication_store = FakeDeduplicationStore()
     app.state.session_store = FakeSessionStore()
     app.state.feishu_file_service = file_service
     app.state.file_parser_service = FakeParserService()
-    app.state.dify_file_upload_service = upload_service
+    app.state.public_file_service = public_file_service
 
     try:
         response = test_client.post("/feishu/webhook", json=feishu_payload)
@@ -451,16 +451,20 @@ def test_feishu_webhook_uploads_post_image_before_gateway(
         del app.state.session_store
         del app.state.feishu_file_service
         del app.state.file_parser_service
-        del app.state.dify_file_upload_service
+        del app.state.public_file_service
 
     assert response.status_code == 200
     assert len(gateway.messages) == 1
     assert gateway.messages[0].content == "post title\ncaption"
     assert file_service.calls == [("om_message_1", "post-image-key", "image")]
-    assert upload_service.calls == [("post-image-key", "ou_user_1", "image")]
+    assert public_file_service.calls == ["post-image-key"]
+    assert (
+        gateway.messages[0].attachments[0].url
+        == "https://bot.example.test/public/files/post-image-key.png"
+    )
 
 
-def test_feishu_webhook_replies_fixed_message_when_dify_upload_fails(
+def test_feishu_webhook_replies_fixed_message_when_image_publish_fails(
     monkeypatch: pytest.MonkeyPatch,
     test_client: TestClient,
     feishu_payload: dict,
@@ -480,7 +484,7 @@ def test_feishu_webhook_replies_fixed_message_when_dify_upload_fails(
     app.state.session_store = FakeSessionStore()
     app.state.feishu_file_service = FakeFileService()
     app.state.file_parser_service = FakeParserService()
-    app.state.dify_file_upload_service = FakeDifyUploadService(fail=True)
+    app.state.public_file_service = FakePublicFileService(fail=True)
 
     try:
         response = test_client.post("/feishu/webhook", json=feishu_payload)
@@ -491,7 +495,7 @@ def test_feishu_webhook_replies_fixed_message_when_dify_upload_fails(
         del app.state.session_store
         del app.state.feishu_file_service
         del app.state.file_parser_service
-        del app.state.dify_file_upload_service
+        del app.state.public_file_service
 
     assert response.status_code == 200
     assert gateway.messages == []

@@ -377,6 +377,7 @@ async def test_dify_payload_includes_uploaded_image_file(
     await backend.chat(message, session_id="session-1")
 
     payload = http_client.post_calls[0][1]["json"]
+    assert payload["query"] == "请分析这张图片"
     assert payload["files"] == [
         {
             "type": "image",
@@ -384,6 +385,78 @@ async def test_dify_payload_includes_uploaded_image_file(
             "upload_file_id": "upload-id-1",
         }
     ]
+
+
+async def test_dify_payload_prefers_public_url_over_uploaded_image_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DIFY_API_KEY", "test-key")
+    http_client = FakeHTTPClient(post_results=[FakeResponse({"answer": "ok"})])
+    backend = DifyBackend(
+        http_client=http_client,
+        base_url="https://dify.example.test",
+        response_mode="blocking",
+    )
+    message = UnifiedMessage(
+        platform=PlatformType.FEISHU,
+        message_type=MessageType.IMAGE,
+        session_id="session-1",
+        user_id="user-1",
+        content="",
+        attachments=[
+            Attachment(
+                url="https://bot.example.test/public/files/image.png",
+                dify_upload_file_id="upload-id-1",
+                dify_file_type="image",
+            )
+        ],
+    )
+
+    await backend.chat(message, session_id="session-1")
+
+    payload = http_client.post_calls[0][1]["json"]
+    assert payload["inputs"]["image_urls"] == (
+        '["https://bot.example.test/public/files/image.png"]'
+    )
+    assert payload["query"] == "请分析这张图片"
+    assert payload["files"] == [
+        {
+            "type": "image",
+            "transfer_method": "remote_url",
+            "url": "https://bot.example.test/public/files/image.png",
+        }
+    ]
+
+
+async def test_dify_payload_uses_configured_default_query_for_empty_image_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DIFY_API_KEY", "test-key")
+    monkeypatch.setenv("DIFY_IMAGE_DEFAULT_QUERY", "这张图什么意思")
+    http_client = FakeHTTPClient(post_results=[FakeResponse({"answer": "ok"})])
+    backend = DifyBackend(
+        http_client=http_client,
+        base_url="https://dify.example.test",
+        response_mode="blocking",
+    )
+    message = UnifiedMessage(
+        platform=PlatformType.FEISHU,
+        message_type=MessageType.IMAGE,
+        session_id="session-1",
+        user_id="user-1",
+        content="",
+        attachments=[
+            Attachment(
+                dify_upload_file_id="upload-id-1",
+                dify_file_type="image",
+            )
+        ],
+    )
+
+    await backend.chat(message, session_id="session-1")
+
+    payload = http_client.post_calls[0][1]["json"]
+    assert payload["query"] == "这张图什么意思"
 
 
 async def test_dify_payload_skips_local_file_without_upload_id(

@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from app.backends.dify import DifyBackend
@@ -14,9 +15,9 @@ from app.core.gateway import Gateway
 from app.core.models import MessageType, UnifiedMessage
 from app.core.session import ConversationSummaryStore, SessionStore
 from app.platforms.feishu import FeishuAdapter
-from app.services.dify_files import DifyFileUploadError, DifyFileUploadService
 from app.services.feishu_files import FeishuFileDownloadError, FeishuFileService
 from app.services.file_parser import FileParserService
+from app.services.public_files import PublicFilePublishError, PublicFileService
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -44,6 +45,14 @@ async def lifespan(app_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(lifespan=lifespan)
+app.mount(
+    "/public/files",
+    StaticFiles(
+        directory=os.getenv("PUBLIC_FILE_DIR") or "/tmp/feishu-bot-public-files",
+        check_dir=False,
+    ),
+    name="public_files",
+)
 
 
 def get_feishu_adapter() -> FeishuAdapter:
@@ -90,11 +99,11 @@ def get_file_parser_service() -> FileParserService:
     return service
 
 
-def get_dify_file_upload_service() -> DifyFileUploadService:
-    service = getattr(app.state, "dify_file_upload_service", None)
+def get_public_file_service() -> PublicFileService:
+    service = getattr(app.state, "public_file_service", None)
     if service is None:
-        service = DifyFileUploadService()
-        app.state.dify_file_upload_service = service
+        service = PublicFileService()
+        app.state.public_file_service = service
     return service
 
 
@@ -165,11 +174,11 @@ async def feishu_webhook(request: Request) -> Response | dict[str, bool]:
                 "文件下载失败，请稍后重试",
             )
             return {"ok": True}
-        except DifyFileUploadError:
+        except PublicFilePublishError:
             logger.exception(
-                "dify attachment upload failed",
+                "public image publish failed",
                 extra={
-                    "event": "dify_attachment_processing",
+                    "event": "public_image_publish",
                     "message_id": incoming.message_id,
                 },
             )
@@ -193,6 +202,7 @@ async def _process_feishu_attachments(incoming: UnifiedMessage) -> None:
 
     file_service = get_feishu_file_service()
     parser_service = get_file_parser_service()
+    public_file_service = get_public_file_service()
     for attachment in incoming.attachments:
         await file_service.download_attachment(
             incoming.message_id,
@@ -200,11 +210,7 @@ async def _process_feishu_attachments(incoming: UnifiedMessage) -> None:
             file_type,
         )
         if incoming.message_type is MessageType.IMAGE:
-            await get_dify_file_upload_service().upload_attachment(
-                attachment,
-                incoming.user_id,
-                dify_file_type="image",
-            )
+            public_file_service.publish_image(attachment)
         elif incoming.message_type is MessageType.FILE:
             parser_service.parse_attachment(attachment)
 
