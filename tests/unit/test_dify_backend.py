@@ -304,8 +304,10 @@ async def test_dify_defaults_to_streaming_response_mode(
 
 async def test_dify_payload_includes_attachment_inputs_and_remote_image_files(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setenv("DIFY_API_KEY", "test-key")
+    caplog.set_level("INFO")
     http_client = FakeHTTPClient(
         post_results=[FakeResponse({"answer": "attachment answer"})]
     )
@@ -347,6 +349,11 @@ async def test_dify_payload_includes_attachment_inputs_and_remote_image_files(
             "url": "https://cdn.example.test/image.png",
         }
     ]
+    assert "dify payload includes files session_id=session-1 file_count=1" in caplog.text
+    assert '"transfer_method": "remote_url"' in caplog.text
+    assert "https://cdn.example.test/image.png" in caplog.text
+    assert 'image_urls=["https://cdn.example.test/image.png"]' in caplog.text
+    assert "query=请分析这张图片" in caplog.text
 
 
 async def test_dify_payload_includes_uploaded_image_file(

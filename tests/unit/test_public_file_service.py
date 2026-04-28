@@ -3,10 +3,43 @@ import re
 import pytest
 
 from app.core.models import Attachment
-from app.services.public_files import PublicFilePublishError, PublicFileService
+from app.services.public_files import (
+    PublicFilePublishError,
+    PublicFileService,
+    PublicFileUrlValidator,
+)
 
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+
+
+class FakeHTTPResponse:
+    def __init__(
+        self,
+        *,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.headers = headers or {
+            "content-type": "image/png",
+            "content-length": "123",
+        }
+
+
+class FakeHTTPClient:
+    def __init__(self, *, head_response: FakeHTTPResponse) -> None:
+        self.head_response = head_response
+        self.head_calls = []
+        self.get_calls = []
+
+    async def head(self, url: str, **kwargs):
+        self.head_calls.append((url, kwargs))
+        return self.head_response
+
+    async def get(self, url: str, **kwargs):
+        self.get_calls.append((url, kwargs))
+        return FakeHTTPResponse(headers={"content-type": "image/jpeg"})
 
 
 def test_public_file_service_publishes_image_with_uuid_name(tmp_path) -> None:
@@ -85,3 +118,56 @@ def test_public_file_service_rejects_unrecognized_image_type(tmp_path) -> None:
 
     with pytest.raises(PublicFilePublishError, match="unrecognized image type"):
         service.publish_image(Attachment(local_path=str(source)))
+
+
+async def test_public_file_url_validator_accepts_reachable_image_url(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO")
+    http_client = FakeHTTPClient(head_response=FakeHTTPResponse())
+    validator = PublicFileUrlValidator(http_client=http_client)
+
+    await validator.validate_image_url("https://bot.example.test/public/files/img.png")
+
+    assert http_client.head_calls[0][0] == (
+        "https://bot.example.test/public/files/img.png"
+    )
+    assert http_client.get_calls == []
+    assert "public_url=https://bot.example.test/public/files/img.png" in caplog.text
+    assert "status_code=200" in caplog.text
+    assert "content_type=image/png" in caplog.text
+
+
+async def test_public_file_url_validator_falls_back_to_get_when_head_is_unsupported() -> None:
+    http_client = FakeHTTPClient(head_response=FakeHTTPResponse(status_code=405))
+    validator = PublicFileUrlValidator(http_client=http_client)
+
+    await validator.validate_image_url("https://bot.example.test/public/files/img.jpg")
+
+    assert http_client.head_calls
+    assert http_client.get_calls[0][0] == "https://bot.example.test/public/files/img.jpg"
+    assert http_client.get_calls[0][1]["headers"] == {"Range": "bytes=0-0"}
+
+
+async def test_public_file_url_validator_rejects_non_2xx_status() -> None:
+    http_client = FakeHTTPClient(
+        head_response=FakeHTTPResponse(status_code=404),
+    )
+    validator = PublicFileUrlValidator(http_client=http_client)
+
+    with pytest.raises(PublicFilePublishError, match="status 404"):
+        await validator.validate_image_url(
+            "https://bot.example.test/public/files/missing.png"
+        )
+
+
+async def test_public_file_url_validator_rejects_non_image_content_type() -> None:
+    http_client = FakeHTTPClient(
+        head_response=FakeHTTPResponse(headers={"content-type": "application/json"}),
+    )
+    validator = PublicFileUrlValidator(http_client=http_client)
+
+    with pytest.raises(PublicFilePublishError, match="non-image content type"):
+        await validator.validate_image_url(
+            "https://bot.example.test/public/files/not-image.png"
+        )

@@ -17,7 +17,11 @@ from app.core.session import ConversationSummaryStore, SessionStore
 from app.platforms.feishu import FeishuAdapter
 from app.services.feishu_files import FeishuFileDownloadError, FeishuFileService
 from app.services.file_parser import FileParserService
-from app.services.public_files import PublicFilePublishError, PublicFileService
+from app.services.public_files import (
+    PublicFilePublishError,
+    PublicFileService,
+    PublicFileUrlValidator,
+)
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -114,6 +118,14 @@ def get_public_file_service(base_url: str | None = None) -> PublicFileService:
     service = PublicFileService()
     app.state.public_file_service = service
     return service
+
+
+def get_public_file_url_validator() -> PublicFileUrlValidator:
+    validator = getattr(app.state, "public_file_url_validator", None)
+    if validator is None:
+        validator = PublicFileUrlValidator()
+        app.state.public_file_url_validator = validator
+    return validator
 
 
 def get_health_backends() -> dict[str, Any]:
@@ -218,6 +230,7 @@ async def _process_feishu_attachments(
     file_service = get_feishu_file_service()
     parser_service = get_file_parser_service()
     public_file_service = get_public_file_service(public_file_base_url)
+    public_file_url_validator = get_public_file_url_validator()
     for attachment in incoming.attachments:
         await file_service.download_attachment(
             incoming.message_id,
@@ -226,6 +239,9 @@ async def _process_feishu_attachments(
         )
         if incoming.message_type is MessageType.IMAGE:
             public_file_service.publish_image(attachment)
+            if not attachment.url:
+                raise PublicFilePublishError("published image is missing public url")
+            await public_file_url_validator.validate_image_url(attachment.url)
         elif incoming.message_type is MessageType.FILE:
             parser_service.parse_attachment(attachment)
 

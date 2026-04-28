@@ -149,13 +149,24 @@ class DifyBackend(LLMBackend):
         )
         files = payload.get("files") or []
         if files:
+            inputs = payload.get("inputs") or {}
+            image_urls = inputs.get("image_urls", "")
+            query = str(payload.get("query") or "")
             logger.info(
-                "dify payload includes files",
+                "dify payload includes files session_id=%s file_count=%s "
+                "files=%s image_urls=%s query=%s",
+                session_id,
+                len(files),
+                json.dumps(files, ensure_ascii=False),
+                image_urls,
+                query,
                 extra={
                     "event": "dify_payload_files",
                     "session_id": session_id,
                     "file_count": len(files),
                     "files": files,
+                    "image_urls": image_urls,
+                    "query": query,
                 },
             )
         return payload

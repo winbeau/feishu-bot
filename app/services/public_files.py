@@ -1,9 +1,12 @@
+import logging
 import os
 import shutil
 import uuid
-import logging
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
+
+import httpx
 
 from app.core.models import Attachment
 
@@ -61,7 +64,10 @@ class PublicFileService:
         shutil.copyfile(source, destination)
         attachment.url = f"{self._base_url}/public/files/{public_name}"
         logger.info(
-            "public image published",
+            "public image published public_url=%s public_path=%s mime_type=%s",
+            attachment.url,
+            destination,
+            attachment.mime_type,
             extra={
                 "event": "public_image_publish",
                 "public_url": attachment.url,
@@ -103,3 +109,83 @@ class PublicFileService:
     def _is_public_base_url(self, url: str) -> bool:
         parsed = urlparse(url)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+class PublicFileUrlValidator:
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        self._http_client = http_client
+        self._timeout_seconds = float(
+            timeout_seconds
+            if timeout_seconds is not None
+            else os.getenv("PUBLIC_FILE_VALIDATE_TIMEOUT_SECONDS", "5")
+        )
+
+    async def validate_image_url(self, url: str) -> None:
+        if self._http_client is not None:
+            await self._validate_with_client(self._http_client, url)
+            return
+
+        async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+            await self._validate_with_client(client, url)
+
+    async def _validate_with_client(self, client: Any, url: str) -> None:
+        try:
+            response = await client.head(
+                url,
+                follow_redirects=True,
+                timeout=self._timeout_seconds,
+            )
+            if getattr(response, "status_code", 200) in {405, 501}:
+                response = await client.get(
+                    url,
+                    headers={"Range": "bytes=0-0"},
+                    follow_redirects=True,
+                    timeout=self._timeout_seconds,
+                )
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "public image url validation network error public_url=%s error=%s",
+                url,
+                exc,
+                extra={"event": "public_image_url_validate", "public_url": url},
+            )
+            raise PublicFilePublishError("public image url is not reachable") from exc
+
+        status_code = getattr(response, "status_code", 200)
+        content_type = self._header(response, "content-type")
+        content_length = self._header(response, "content-length")
+        logger.info(
+            "public image url validated public_url=%s status_code=%s "
+            "content_type=%s content_length=%s",
+            url,
+            status_code,
+            content_type,
+            content_length,
+            extra={
+                "event": "public_image_url_validate",
+                "public_url": url,
+                "status_code": status_code,
+                "content_type": content_type,
+                "content_length": content_length,
+            },
+        )
+
+        if status_code < 200 or status_code >= 300:
+            raise PublicFilePublishError(
+                f"public image url returned status {status_code}"
+            )
+        if not content_type.lower().startswith("image/"):
+            raise PublicFilePublishError(
+                f"public image url returned non-image content type: {content_type}"
+            )
+
+    def _header(self, response: Any, name: str) -> str:
+        headers = getattr(response, "headers", {}) or {}
+        if not hasattr(headers, "get"):
+            return ""
+        value = headers.get(name) or headers.get(name.title())
+        return str(value or "")
