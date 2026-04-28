@@ -40,7 +40,7 @@
       "单元测试：正常路由",
       "单元测试：backend 异常时返回兜底回复"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F004",

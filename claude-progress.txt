@@ -96,3 +96,26 @@ Tests:
 Feature status: F001-F002 passes=true; F003-F010 passes=false
 
 Next agent should start with: F003
+
+=== Session 003: F003 Message Routing Core ===
+Date: 2026-04-28
+Agent: Codex
+Status: DONE
+
+What was implemented:
+- tests/unit/test_gateway.py: TDD coverage for Gateway routing to an injected backend and fallback reply on backend exceptions
+- app/core/gateway.py: Gateway constructor dependency injection, core-local ChatBackend Protocol, route() calling backend.chat(message, message.session_id), and fixed Chinese fallback reply
+- feature_list.json: F003 passes=true
+
+Architecture notes:
+- app/core/gateway.py imports only app.core.models from project layers; no app.backends or app.platforms dependency was introduced
+- F003 was kept scoped to dependency-injected backend routing; no concrete backend, platform adapter, session, or HTTP route behavior was implemented
+
+Tests:
+- RED confirmed: uv run pytest tests/unit/test_gateway.py -k "test_gateway" -v failed against the Gateway stub with TypeError: Gateway() takes no arguments
+- GREEN confirmed: uv run pytest tests/unit/test_gateway.py -k "test_gateway" -v passed
+- Full suite: uv run pytest tests/ -q passed, 24 tests
+
+Feature status: F001-F003 passes=true; F004-F010 passes=false
+
+Next agent should start with: F004
