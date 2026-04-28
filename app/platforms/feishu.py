@@ -73,6 +73,8 @@ class FeishuAdapter(PlatformAdapter):
         payload = await self._request_json(request)
         token = payload.get("token")
         if not isinstance(token, str):
+            token = payload.get("header", {}).get("token")
+        if not isinstance(token, str):
             return False
         return secrets.compare_digest(token, expected_token)
 

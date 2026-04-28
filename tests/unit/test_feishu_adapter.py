@@ -112,6 +112,16 @@ async def test_feishu_verify_signature_returns_false_when_token_mismatches(
     assert await adapter.verify_signature(request) is False
 
 
+async def test_feishu_verify_signature_accepts_v2_header_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FEISHU_VERIFICATION_TOKEN", "expected-token")
+    adapter = FeishuAdapter()
+    request = make_request({"header": {"token": "expected-token"}})
+
+    assert await adapter.verify_signature(request) is True
+
+
 async def test_feishu_parse_incoming_text_event(feishu_event: dict) -> None:
     adapter = FeishuAdapter()
 
